@@ -31,9 +31,9 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_USE_FAST_RESOLVER": "1"
+        "EXPO_USE_FAST_RESOLVER": "1",
+        "NPM_CONFIG_PACKAGE_LOCK_ONLY": "true"
       },
-      "packageManager": "npm",
       "credentialsSource": "remote",
       "node": "20.x"
     }
@@ -41,9 +41,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "your-apple-id@example.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "your-apple-team-id"
+        "appleId": "mapepaprosper76@gmail.com",
+        "ascAppId": "6756984192",
+        "appleTeamId": "RP9AAV97KQ"
       },
       "android": {
         "serviceAccountKeyPath": "./service-account-key.json",
