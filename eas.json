@@ -31,8 +31,7 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_USE_FAST_RESOLVER": "1",
-        "NPM_CONFIG_PACKAGE_LOCK_ONLY": "true"
+        "EXPO_USE_FAST_RESOLVER": "1"
       },
       "credentialsSource": "remote"
     }
