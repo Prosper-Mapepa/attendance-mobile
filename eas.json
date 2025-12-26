@@ -34,8 +34,7 @@
         "EXPO_USE_FAST_RESOLVER": "1",
         "NPM_CONFIG_PACKAGE_LOCK_ONLY": "true"
       },
-      "credentialsSource": "remote",
-      "node": "20"
+      "credentialsSource": "remote"
     }
   },
   "submit": {
