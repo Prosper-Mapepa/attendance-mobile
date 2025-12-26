@@ -31,9 +31,9 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_USE_FAST_RESOLVER": "1",
-        "PATH": "$(pnpm bin):$PATH"
+        "EXPO_USE_FAST_RESOLVER": "1"
       },
+      "packageManager": "npm",
       "credentialsSource": "remote",
       "node": "20.x"
     }
