@@ -35,7 +35,7 @@
         "NPM_CONFIG_PACKAGE_LOCK_ONLY": "true"
       },
       "credentialsSource": "remote",
-      "node": "20.x"
+      "node": "20"
     }
   },
   "submit": {
