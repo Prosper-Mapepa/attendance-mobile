@@ -33,7 +33,8 @@
       "env": {
         "EXPO_USE_FAST_RESOLVER": "1"
       },
-      "credentialsSource": "remote"
+      "credentialsSource": "remote",
+      "node": "20.x"
     }
   },
   "submit": {
