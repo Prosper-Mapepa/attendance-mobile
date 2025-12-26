@@ -9,10 +9,12 @@ import {
   Dimensions,
   TextInput,
   Modal,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { BarCodeScanner } from 'expo-barcode-scanner';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -25,11 +27,13 @@ const QRScannerScreen: React.FC = () => {
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
   const [scanned, setScanned] = useState(false);
+  const [scanningEnabled, setScanningEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
+  const [cameraReady, setCameraReady] = useState(false);
   
   // Enhanced Security States
   const [showSMSModal, setShowSMSModal] = useState(false);
@@ -38,10 +42,61 @@ const QRScannerScreen: React.FC = () => {
   const [otpInput, setOtpInput] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
   const [currentOTP, setCurrentOTP] = useState('');
+  
+  // Clock In/Out States
+  const [isClockedIn, setIsClockedIn] = useState(false);
+  const [sessionEndTime, setSessionEndTime] = useState<Date | null>(null);
+  const [clockInTime, setClockInTime] = useState<Date | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [canClockOut, setCanClockOut] = useState(false);
+  const [sessionInfo, setSessionInfo] = useState<{ sessionId: string; className: string; classSubject?: string } | null>(null);
+  const [lastScannedCode, setLastScannedCode] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     requestLocationPermission();
+    requestCameraPermissionIfNeeded();
   }, []);
+
+  // Timer for clock out countdown
+  useEffect(() => {
+    if (!isClockedIn || !sessionEndTime) return;
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const remaining = Math.max(0, sessionEndTime.getTime() - now.getTime());
+      setTimeRemaining(remaining);
+      
+      // Allow clock out when session has ended (backend will validate minimum duration)
+      setCanClockOut(remaining === 0);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isClockedIn, sessionEndTime]);
+
+
+  const requestCameraPermissionIfNeeded = async () => {
+    if (cameraPermission && !cameraPermission.granted) {
+      try {
+        await requestCameraPermission();
+      } catch (error) {
+        console.error('Camera permission request error:', error);
+        showError('Failed to request camera permission');
+      }
+    }
+  };
+
+  const handleRequestCameraPermission = async () => {
+    try {
+      const result = await requestCameraPermission();
+      if (!result.granted) {
+        showError('Camera permission is required to scan QR codes');
+      }
+    } catch (error) {
+      console.error('Camera permission request error:', error);
+      showError('Failed to request camera permission');
+    }
+  };
 
   const requestLocationPermission = async () => {
     try {
@@ -51,10 +106,18 @@ const QRScannerScreen: React.FC = () => {
 
       if (locationStatus === 'granted') {
         // Get current location
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        setCurrentLocation(location);
+        try {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
+          setCurrentLocation(location);
+          showSuccess('Location permission granted');
+        } catch (locationError) {
+          console.error('Location fetch error:', locationError);
+          showError('Failed to get your location. Please try again.');
+        }
+      } else {
+        showError('Location permission is required to scan QR codes');
       }
     } catch (error) {
       console.error('Permission request error:', error);
@@ -63,16 +126,29 @@ const QRScannerScreen: React.FC = () => {
   };
 
   const handleQRCodeScanned = async (data: string, smsCode?: string) => {
-    if (scanned) return;
+    // Prevent multiple scans of the same code or if already processing
+    if (!smsCode && (data === lastScannedCode || isProcessing)) return;
     
-    setScanned(true);
+    // Allow retry if SMS code is provided (for SMS verification flow)
+    // Otherwise, prevent multiple scans
+    if (!smsCode && (!scanningEnabled || scanned || loading || isProcessing)) return;
+    
+    // Immediately disable scanning and set processing flag to prevent multiple triggers
+    if (!smsCode) {
+      setScanningEnabled(false);
+      setScanned(true);
+      setLastScannedCode(data);
+      setIsProcessing(true);
+    }
     setLoading(true);
     let otp = '';
 
     try {
       if (!currentLocation) {
         showError('Location permission required for attendance marking');
+        // Re-enable scanning on error
         setScanned(false);
+        setScanningEnabled(true);
         setLoading(false);
         return;
       }
@@ -92,8 +168,6 @@ const QRScannerScreen: React.FC = () => {
         const urlParams = new URLSearchParams(data.split('?')[1] || '');
         otp = urlParams.get('otp') || urlParams.get('OTP') || '';
       }
-
-      setCurrentOTP(otp);
       
       // Extract any 6-digit number from the string
       const digitMatch = otp.match(/\d{6}/);
@@ -106,10 +180,15 @@ const QRScannerScreen: React.FC = () => {
       // Validate OTP format (should be 6 digits)
       if (!/^\d{6}$/.test(otp)) {
         showError('Invalid QR Code: Please scan a valid attendance QR code');
+        // Re-enable scanning on error
         setScanned(false);
+        setScanningEnabled(true);
         setLoading(false);
         return;
       }
+
+      // Store the validated 6-digit OTP for clock-out
+      setCurrentOTP(otp);
 
       // Collect device fingerprint data
       const deviceFingerprint = await collectDeviceFingerprint();
@@ -125,16 +204,84 @@ const QRScannerScreen: React.FC = () => {
 
       console.log('Sending attendance data:', attendanceData);
       
-      await api.post('/attendance/mark', attendanceData);
+      const response = await api.post('/attendance/mark', attendanceData);
+      const responseData = response.data;
 
-      showSuccess('Attendance marked successfully!');
-      setScanned(false);
+      // Handle clock in response
+      if (responseData.isClockedIn) {
+        setIsClockedIn(true);
+        
+        // Mark that student has clocked in (for login restriction after logout)
+        await AsyncStorage.setItem('has_clocked_in', 'true');
+        
+        // Set clock in time from attendance data if available, otherwise use current time
+        if (responseData.data?.clockInTime) {
+          setClockInTime(new Date(responseData.data.clockInTime));
+        } else if (responseData.data?.timestamp) {
+          setClockInTime(new Date(responseData.data.timestamp));
+        } else {
+          setClockInTime(new Date());
+        }
+        
+        if (responseData.sessionEndTime) {
+          setSessionEndTime(new Date(responseData.sessionEndTime));
+        }
+        
+        // Extract session and class info from response
+        const session = responseData.session || responseData.data?.session;
+        if (session && session.class) {
+          setSessionInfo({
+            sessionId: session.id,
+            className: session.class.name,
+            classSubject: session.class.subject,
+          });
+        }
+        
+        showSuccess(responseData.message || 'Clock in successful! Please wait for class to end before clocking out.');
+      } else {
+        showSuccess('Attendance marked successfully!');
+      }
+      
+      // Keep scanning disabled on success - user needs to manually scan again
+      setScanned(true);
+      setScanningEnabled(false);
       setLoading(false);
+      setIsProcessing(false);
       setShowSMSModal(false);
       setSmsCode('');
       setSecurityMessage('');
+      setLastScannedCode(''); // Reset to allow scanning same code again later
     } catch (error: any) {
       console.error('Attendance marking error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      
+      // If clock-in was successful but there's an error, check if we should handle it gracefully
+      // This can happen if the response was successful but there's a client-side error
+      if (error.response?.status === 500 && error.response?.data?.isClockedIn) {
+        // Server error but clock-in was successful - try to extract session info from error response
+        const responseData = error.response.data;
+        if (responseData.isClockedIn) {
+          setIsClockedIn(true);
+          if (responseData.sessionEndTime) {
+            setSessionEndTime(new Date(responseData.sessionEndTime));
+          }
+          const session = responseData.session || responseData.data?.session;
+          if (session && session.class) {
+            setSessionInfo({
+              sessionId: session.id,
+              className: session.class.name,
+              classSubject: session.class.subject,
+            });
+          }
+          showSuccess('Clock in successful!');
+          setScanned(true);
+          setScanningEnabled(false);
+          setLoading(false);
+          setIsProcessing(false);
+          return;
+        }
+      }
       
       const errorMessage = error.response?.data?.message || error.message || 'Failed to mark attendance. Please try again.';
       
@@ -143,14 +290,84 @@ const QRScannerScreen: React.FC = () => {
         setSecurityMessage(errorMessage);
         setShowSMSModal(true);
         setLoading(false);
+        // Keep scanning disabled while SMS modal is open
         return;
       }
 
       showError(errorMessage);
+      // Keep scan as complete but allow retry - user needs to tap "Scan Again"
+      setScanned(true);
+      setScanningEnabled(false); // Keep disabled until user taps "Scan Again"
+      setLastScannedCode(''); // Reset to allow scanning same code again
+      setIsProcessing(false); // Reset processing flag
+    } finally {
+      setLoading(false);
+      setIsProcessing(false); // Reset processing flag
+    }
+  };
+
+  const resetScanner = () => {
+    setScanned(false);
+    setScanningEnabled(true);
+    setLoading(false);
+    setIsProcessing(false);
+    setShowSMSModal(false);
+    setSmsCode('');
+    setSecurityMessage('');
+    setIsClockedIn(false);
+    setSessionEndTime(null);
+    setClockInTime(null);
+    setTimeRemaining(0);
+    setCanClockOut(false);
+    setSessionInfo(null);
+    setLastScannedCode('');
+  };
+
+  const handleClockOut = async () => {
+    if (!canClockOut || !currentOTP) {
+      showError('Please wait for class to end before clocking out');
+      return;
+    }
+
+    if (!currentLocation) {
+      showError('Location permission required for clock out');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const clockOutData = {
+        otp: currentOTP,
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+      };
+
+      const response = await api.post('/attendance/clock-out', clockOutData);
+      showSuccess(`Clock out successful! You attended for ${response.data.timeElapsed} minutes.`);
+      
+      // Reset states
+      setIsClockedIn(false);
+      setSessionEndTime(null);
+      setClockInTime(null);
+      setTimeRemaining(0);
+      setCanClockOut(false);
+      setCurrentOTP('');
       setScanned(false);
+      setScanningEnabled(true);
+    } catch (error: any) {
+      console.error('Clock out error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to clock out. Please try again.';
+      showError(errorMessage);
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatTimeRemaining = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   const handleManualOTPEntry = async (otp: string) => {
@@ -185,11 +402,24 @@ const QRScannerScreen: React.FC = () => {
     return (
       <View style={styles.container}>
         <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color="#8B0000" />
+          <Text style={[styles.errorText, { marginTop: 16 }]}>
+            Checking camera permissions...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!cameraPermission.granted) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.centerContent}>
           <Text style={styles.errorTitle}>Camera Permission Required</Text>
           <Text style={styles.errorText}>
             Please grant camera permission to scan QR codes for attendance.
           </Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestCameraPermission}>
+          <TouchableOpacity style={styles.permissionButton} onPress={handleRequestCameraPermission}>
             <Text style={styles.permissionButtonText}>Grant Camera Permission</Text>
           </TouchableOpacity>
         </View>
@@ -214,38 +444,138 @@ const QRScannerScreen: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Attendance Scanner</Text>
-        <Text style={styles.subtitle}>
-          Scan QR code from your teacher's screen
-        </Text>
-      </View>
-
-      <View style={styles.scannerContainer}>
-        <CameraView
-          style={styles.camera}
-          facing={facing}
-          onBarcodeScanned={scanned ? undefined : ({ data }) => handleQRCodeScanned(data)}
-        >
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerFrame}>
-              <View style={styles.corner} />
-              <View style={[styles.corner, styles.topRight]} />
-              <View style={[styles.corner, styles.bottomLeft]} />
-              <View style={[styles.corner, styles.bottomRight]} />
-            </View>
-            <Text style={styles.scannerText}>Position QR code within the frame</Text>
+    <LinearGradient
+      colors={['#A00000', '#8B0000', '#6B0000']}
+      style={styles.container}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+    >
+      {/* <View style={styles.header}>
+        {isClockedIn && sessionInfo ? (
+          <View style={styles.classInfoContainer}>
+            <Text style={styles.className}>{sessionInfo.className}</Text>
+            {sessionInfo.classSubject && (
+              <Text style={styles.classSubject}>{sessionInfo.classSubject}</Text>
+            )}
           </View>
-        </CameraView>
-        
-        {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#8B0000" />
-            <Text style={styles.loadingText}>Processing attendance...</Text>
-          </View>
+        ) : (
+          <Text style={styles.subtitle}>
+            Scan QR code from your Instructor's screen to clock in
+          </Text>
         )}
-      </View>
+      </View> */}
+
+      {isClockedIn ? (
+        /* Clocked In View - Clean Design */
+        <View style={styles.clockedInContainer}>
+          <View style={styles.clockedInContent}>
+            {/* Clock Out Timer */}
+            {sessionEndTime && (
+              <View style={styles.timerContainer}>
+                <Text style={styles.timerValue}>
+                  {timeRemaining > 0 
+                    ? formatTimeRemaining(timeRemaining)
+                    : '00:00'
+                  }
+                </Text>
+                <Text style={styles.timerLabel}>
+                  {timeRemaining > 0 
+                    ? 'Time remaining'
+                    : 'Class ended'
+                  }
+                </Text>
+              </View>
+            )}
+
+            {/* Clock In Time */}
+            {clockInTime && (
+              <Text style={styles.clockInTimeValue}>
+                Clocked in at {clockInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            )}
+          </View>
+        </View>
+      ) : (
+        /* QR Scanner View */
+        <View style={styles.scannerContainer}>
+          {!locationPermission && (
+            <View style={styles.centerContent}>
+              <Ionicons name="location-outline" size={64} color="#FFD700" />
+              <Text style={styles.errorTitle}>Location Permission Required</Text>
+              <Text style={styles.errorText}>
+                Please enable location permission to scan QR codes for attendance.
+              </Text>
+              <TouchableOpacity style={styles.permissionButton} onPress={requestLocationPermission}>
+                <Text style={styles.permissionButtonText}>Enable Location</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {locationPermission && cameraPermission.granted && !isClockedIn && (
+            <View style={styles.cameraContainer}>
+            <CameraView
+              style={styles.camera}
+              facing={facing}
+              onBarcodeScanned={scanningEnabled && !scanned && !loading && !isProcessing && locationPermission ? ({ data }) => {
+                // Only scan if data is different from last scan and not processing, and location is enabled
+                if (data !== lastScannedCode && !isProcessing && locationPermission) {
+                  handleQRCodeScanned(data);
+                }
+              } : undefined}
+              onCameraReady={() => {
+                setCameraReady(true);
+              }}
+              enableTorch={false}
+              barcodeScannerSettings={{
+                barcodeTypes: ['qr'],
+              }}
+              />
+              <View style={styles.scannerOverlay}>
+                {!scanned && !loading && (
+                  <>
+                    <View style={styles.scannerFrame}>
+                      <View style={styles.corner} />
+                      <View style={[styles.corner, styles.topRight]} />
+                      <View style={[styles.corner, styles.bottomLeft]} />
+                      <View style={[styles.corner, styles.bottomRight]} />
+                    </View>
+                    <Text style={styles.scannerText}>Position QR code within the frame</Text>
+                  </>
+                )}
+                {scanned && !loading && (
+                  <View style={styles.scanCompleteOverlay}>
+                    <Ionicons name="checkmark-circle" size={64} color="#FFD700" />
+                    <Text style={styles.scanCompleteText}>Scan Complete</Text>
+                    <Text style={styles.scanAgainPrompt}>Tap "Scan Again" to scan another code</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+          
+          {!cameraReady && locationPermission && cameraPermission.granted && !isClockedIn && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#8B0000" />
+              <Text style={styles.loadingText}>Initializing camera...</Text>
+            </View>
+          )}
+          
+          {loading && locationPermission && !isClockedIn && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#FFD700" />
+              <Text style={styles.loadingText}>Processing attendance...</Text>
+              <Text style={styles.loadingSubtext}>Please wait...</Text>
+            </View>
+          )}
+          
+          {scanned && !loading && locationPermission && !isClockedIn && (
+            <View style={styles.scanCompleteMessage}>
+              <Text style={styles.scanCompleteMessageText}>
+                Scan completed. Use "Scan Again" to scan another QR code.
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* OTP Entry Modal */}
       <Modal
@@ -261,7 +591,7 @@ const QRScannerScreen: React.FC = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Enter OTP Code</Text>
             <Text style={styles.modalMessage}>
-              Please enter the OTP code from your teacher's QR code:
+              Please enter the OTP code from your Instructor's QR code:
             </Text>
             
             <TextInput
@@ -326,8 +656,7 @@ const QRScannerScreen: React.FC = () => {
                   setShowSMSModal(false);
                   setSmsCode('');
                   setSecurityMessage('');
-                  setScanned(false);
-                  setLoading(false);
+                  resetScanner();
                 }}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -346,49 +675,93 @@ const QRScannerScreen: React.FC = () => {
       </Modal>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Location: {currentLocation ? '✓ Enabled' : '✗ Disabled'} | Camera: {facing === 'back' ? 'Back' : 'Front'}
-        </Text>
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={[styles.flipButton, (loading || scanned) && styles.disabledButton]}
-            onPress={toggleCameraFacing}
-            disabled={loading || scanned}
-          >
-            <Ionicons 
-              name={facing === 'back' ? 'camera-reverse' : 'camera'} 
-              size={24} 
-              color="#8B0000" 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.manualButton, (loading || scanned) && styles.disabledButton]}
-            onPress={promptForOTP}
-            disabled={loading || scanned}
-          >
-            <Text style={styles.manualButtonText}>Use OTP</Text>
-          </TouchableOpacity>
-        </View>
+        {!isClockedIn && locationPermission && (
+          <Text style={styles.footerText}>
+            Location: {currentLocation ? '✓ Enabled' : '✗ Getting location...'} | Camera: {facing === 'back' ? 'Back' : 'Front'}
+          </Text>
+        )}
+        {isClockedIn ? (
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[
+                styles.clockOutButton,
+                (!canClockOut || loading) && styles.disabledButton
+              ]}
+              onPress={handleClockOut}
+              disabled={!canClockOut || loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="log-out-outline" size={20} color="#8B0000" style={{ marginRight: 8 }} />
+                  <Text style={styles.clockOutButtonText}>Clock Out</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.buttonRow}>
+            {!locationPermission ? (
+              <TouchableOpacity
+                style={[styles.permissionButton, { flex: 1, marginHorizontal: 0 }]}
+                onPress={requestLocationPermission}
+              >
+                <Ionicons name="location" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.permissionButtonText}>Enable Location to Scan</Text>
+              </TouchableOpacity>
+            ) : scanned && !loading ? (
+              <TouchableOpacity
+                style={[styles.manualButton, { flex: 1, marginLeft: 0, marginRight: 0 }]}
+                onPress={resetScanner}
+              >
+                <Text style={styles.manualButtonText}>Scan Again</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[styles.flipButton, (loading || scanned || !locationPermission) && styles.disabledButton]}
+                  onPress={toggleCameraFacing}
+                  disabled={loading || scanned || !locationPermission}
+                >
+                  <Ionicons 
+                    name={facing === 'back' ? 'camera-reverse' : 'camera'} 
+                    size={24} 
+                    color="#8B0000" 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.manualButton, (loading || scanned || !locationPermission) && styles.disabledButton]}
+                  onPress={promptForOTP}
+                  disabled={loading || scanned || !locationPermission}
+                >
+                  <Text style={styles.manualButtonText}>Use OTP</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
       </View>
-    </View>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#8B0000',
   },
   centerContent: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: 'transparent',
   },
   header: {
-    padding: 20,
-    backgroundColor: '#8B0000',
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingBottom: 20,
   },
   title: {
     fontSize: 24,
@@ -405,15 +778,24 @@ const styles = StyleSheet.create({
   scannerContainer: {
     flex: 1,
     position: 'relative',
+    
+  },
+  cameraContainer: {
+    flex: 1,
+    position: 'relative',
   },
   camera: {
     flex: 1,
   },
   scannerOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   scannerFrame: {
     width: 250,
@@ -464,6 +846,43 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
+  scanCompleteOverlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  scanCompleteText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  scanAgainPrompt: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  scanCompleteMessage: {
+    backgroundColor: 'rgba(255, 215, 0, 0.2)',
+    padding: 16,
+    borderRadius: 12,
+    margin: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.4)',
+  },
+  scanCompleteMessageText: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  loadingSubtext: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+    marginTop: 8,
+  },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -481,8 +900,8 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 20,
-    backgroundColor: '#8B0000',
     alignItems: 'center',
+    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
   },
   footerText: {
     color: '#fff',
@@ -492,9 +911,10 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginBottom: 12,
     paddingHorizontal: 20,
+    width: '100%',
   },
   flipButton: {
     backgroundColor: '#fff',
@@ -534,6 +954,39 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     shadowOpacity: 0.1,
   },
+  clockStatusContainer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+  },
+  clockStatusText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  clockOutButton: {
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  clockOutButtonText: {
+    color: '#8B0000',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -551,6 +1004,8 @@ const styles = StyleSheet.create({
   permissionButton: {
     backgroundColor: '#8B0000',
     paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: '#fff',
     paddingVertical: 12,
     borderRadius: 8,
   },
@@ -629,6 +1084,54 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Clocked In View Styles
+  clockedInContainer: {
+    flex: 1,
+  },
+  clockedInContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 30,
+    gap: 40,
+  },
+  classInfoContainer: {
+    alignItems: 'flex-start',
+  },
+  className: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 6,
+    letterSpacing: 0.2,
+  },
+  classSubject: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontWeight: '400',
+  },
+  timerContainer: {
+    alignItems: 'center',
+  },
+  timerLabel: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '400',
+    marginTop: 12,
+  },
+  timerValue: {
+    fontSize: 56,
+    fontWeight: '700',
+    color: '#FFD700',
+    fontFamily: 'monospace',
+    letterSpacing: 3,
+  },
+  clockInTimeValue: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
   },
 });

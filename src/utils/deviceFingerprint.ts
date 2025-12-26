@@ -26,16 +26,8 @@ export async function collectDeviceFingerprint(): Promise<DeviceFingerprintData>
     language: Intl.DateTimeFormat().resolvedOptions().locale,
   };
 
-  // Add battery information if available
-  try {
-    const batteryLevel = await Device.getBatteryLevelAsync();
-    const isCharging = await Device.isBatteryChargingAsync();
-    
-    fingerprint.batteryLevel = Math.round(batteryLevel * 100);
-    fingerprint.isCharging = isCharging;
-  } catch (error) {
-    console.log('Battery info not available');
-  }
+  // Battery information is not available in expo-device v7+
+  // These fields remain optional and will be undefined
 
   // Add network information (requires additional permissions)
   try {

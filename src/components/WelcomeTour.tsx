@@ -5,17 +5,15 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
-  Dimensions,
   Animated,
   ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useResponsive } from '../utils/useResponsive';
 
-const { width, height } = Dimensions.get('window');
-
-interface TourStep {
+interface WelcomeStep {
   id: number;
   title: string;
   description: string;
@@ -23,57 +21,38 @@ interface TourStep {
   color: string;
 }
 
-const TOUR_STEPS: TourStep[] = [
+const WELCOME_STEPS: WelcomeStep[] = [
   {
     id: 1,
     title: 'Welcome to AttendIQ!',
-    description: 'Your smart attendance tracking companion. Let\'s take a quick tour to get you started.',
+    description: 'Your smart attendance tracking companion. Mark attendance easily with QR codes or OTP.',
     icon: 'rocket',
     color: '#FBBC04',
   },
   {
     id: 2,
-    title: 'Dashboard',
-    description: 'View all your enrolled classes and enroll in new ones. Manage your class schedule from here.',
-    icon: 'home',
+    title: 'Quick & Easy',
+    description: 'Enroll in Classes and scan QR codes or enter OTP codes to mark your attendance in seconds.',
+    icon: 'flash',
     color: '#FBBC04',
   },
   {
     id: 3,
-    title: 'QR Scanner',
-    description: 'Scan the QR code displayed by your instructor to mark attendance quickly and easily.',
-    icon: 'qr-code',
-    color: '#FBBC04',
-  },
-  {
-    id: 4,
-    title: 'Enter OTP',
-    description: 'Alternatively, you can enter the OTP code manually if QR scanning is not available.',
-    icon: 'keypad',
-    color: '#FBBC04',
-  },
-  {
-    id: 5,
-    title: 'Attendance Info',
-    description: 'Learn how to mark your attendance step-by-step. Follow the instructions for a smooth experience.',
-    icon: 'information-circle',
-    color: '#FBBC04',
-  },
-  {
-    id: 6,
-    title: 'History',
-    description: 'View your complete attendance history organized by class. Track your attendance records anytime.',
-    icon: 'time',
+    title: 'Track Everything',
+    description: 'View your attendance history, manage classes, and stay on top of your schedule.',
+    icon: 'stats-chart',
     color: '#FBBC04',
   },
 ];
 
-interface TourGuideProps {
+interface WelcomeTourProps {
   visible: boolean;
   onComplete: () => void;
+  onSkip: () => void;
 }
 
-const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
+const WelcomeTour: React.FC<WelcomeTourProps> = ({ visible, onComplete, onSkip }) => {
+  const responsive = useResponsive();
   const [currentStep, setCurrentStep] = useState(0);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
@@ -97,7 +76,7 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
   }, [visible]);
 
   const handleNext = () => {
-    if (currentStep < TOUR_STEPS.length - 1) {
+    if (currentStep < WELCOME_STEPS.length - 1) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -129,12 +108,13 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
     }
   };
 
-  const handleSkip = () => {
-    handleComplete();
+  const handleSkip = async () => {
+    await AsyncStorage.setItem('hasSeenWelcomeTour', 'true');
+    onSkip();
   };
 
   const handleComplete = async () => {
-    await AsyncStorage.setItem('hasSeenTour', 'true');
+    await AsyncStorage.setItem('hasSeenWelcomeTour', 'true');
     onComplete();
   };
 
@@ -169,8 +149,8 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
     }
   };
 
-  const step = TOUR_STEPS[currentStep];
-  const isLastStep = currentStep === TOUR_STEPS.length - 1;
+  const step = WELCOME_STEPS[currentStep];
+  const isLastStep = currentStep === WELCOME_STEPS.length - 1;
   const isFirstStep = currentStep === 0;
 
   return (
@@ -185,13 +165,26 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
           colors={['rgba(139, 0, 0, 0.95)', 'rgba(139, 0, 0, 0.98)']}
           style={styles.container}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
+          <View style={[
+            styles.contentWrapper,
+            responsive.isTablet && {
+              maxWidth: responsive.maxContentWidth,
+              alignSelf: 'center',
+              width: '100%',
+            }
+          ]}>
+            <ScrollView
+              contentContainerStyle={[
+                styles.scrollContent,
+                responsive.isTablet && {
+                  paddingHorizontal: responsive.horizontalPadding,
+                }
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
             {/* Progress Indicator */}
             <View style={styles.progressContainer}>
-              {TOUR_STEPS.map((_, index) => (
+              {WELCOME_STEPS.map((_, index) => (
                 <View
                   key={index}
                   style={[
@@ -223,21 +216,43 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
               ]}
             >
               {/* Icon */}
-              <View style={[styles.iconContainer, { backgroundColor: `${step.color}15` }]}>
-                <View style={[styles.iconCircle, { borderColor: step.color }]}>
-                  <Ionicons name={step.icon} size={70} color={step.color} />
+              <View style={[
+                styles.iconContainer, 
+                { backgroundColor: `${step.color}15` },
+                responsive.isTablet && responsive.isLandscape && styles.iconContainerTabletLandscape
+              ]}>
+                <View style={[
+                  styles.iconCircle, 
+                  { borderColor: step.color },
+                  responsive.isTablet && responsive.isLandscape && styles.iconCircleTabletLandscape
+                ]}>
+                  <Ionicons 
+                    name={step.icon} 
+                    size={responsive.isTablet && responsive.isLandscape ? 90 : 70} 
+                    color={step.color} 
+                  />
                 </View>
               </View>
 
               {/* Title */}
-              <Text style={styles.title}>{step.title}</Text>
+              <Text style={[
+                styles.title,
+                responsive.isTablet && responsive.isLandscape && styles.titleTabletLandscape
+              ]}>
+                {step.title}
+              </Text>
 
               {/* Description */}
-              <Text style={styles.description}>{step.description}</Text>
+              <Text style={[
+                styles.description,
+                responsive.isTablet && responsive.isLandscape && styles.descriptionTabletLandscape
+              ]}>
+                {step.description}
+              </Text>
 
               {/* Step Counter */}
               <Text style={styles.stepCounter}>
-                {currentStep + 1} of {TOUR_STEPS.length}
+                {currentStep + 1} of {WELCOME_STEPS.length}
               </Text>
             </Animated.View>
 
@@ -255,7 +270,7 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
               )}
 
               <TouchableOpacity
-                style={styles.nextButton}
+                style={[styles.nextButton, { flex: isFirstStep ? 1 : 0.6 }]}
                 onPress={handleNext}
                 activeOpacity={0.9}
               >
@@ -267,7 +282,8 @@ const TourGuide: React.FC<TourGuideProps> = ({ visible, onComplete }) => {
                 )}
               </TouchableOpacity>
             </View>
-          </ScrollView>
+            </ScrollView>
+          </View>
         </LinearGradient>
       </View>
     </Modal>
@@ -280,6 +296,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 0, 0, 0.95)',
   },
   container: {
+    flex: 1,
+  },
+  contentWrapper: {
     flex: 1,
   },
   scrollContent: {
@@ -331,6 +350,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 32,
   },
+  iconContainerTabletLandscape: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    marginBottom: 40,
+  },
   iconCircle: {
     width: 140,
     height: 140,
@@ -340,6 +365,11 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
+  iconCircleTabletLandscape: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -348,6 +378,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     letterSpacing: -0.5,
   },
+  titleTabletLandscape: {
+    fontSize: 36,
+    marginBottom: 20,
+  },
   description: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.9)',
@@ -355,6 +389,12 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     paddingHorizontal: 20,
     marginBottom: 24,
+  },
+  descriptionTabletLandscape: {
+    fontSize: 20,
+    lineHeight: 30,
+    paddingHorizontal: 40,
+    marginBottom: 32,
   },
   stepCounter: {
     fontSize: 14,
@@ -371,17 +411,14 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   navButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    minWidth: 140,
   },
   navButtonText: {
     color: '#fff',
@@ -390,12 +427,11 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   nextButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 32,
     backgroundColor: '#FBBC04',
     borderRadius: 12,
     shadowColor: '#FBBC04',
@@ -406,19 +442,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
-    minWidth: 140,
   },
   nextButtonText: {
     color: '#8B0000',
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,
-    
   },
   nextIcon: {
     marginLeft: 8,
   },
 });
 
-export default TourGuide;
+export default WelcomeTour;
 

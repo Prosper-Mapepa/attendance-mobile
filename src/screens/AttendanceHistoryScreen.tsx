@@ -170,9 +170,9 @@ const AttendanceHistoryScreen: React.FC = () => {
 
       {/* Attendance Records by Class */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
+        {/* <Text style={styles.sectionTitle}>
           Attendance History ({attendanceRecords.length})
-        </Text>
+        </Text> */}
         {attendanceRecords.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No attendance records</Text>
@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     padding: 20,
+    marginTop: 4,
     gap: 15,
   },
   statCard: {

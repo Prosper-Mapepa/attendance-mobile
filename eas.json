@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 5.2.0"
+    "version": ">= 5.2.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -20,9 +21,19 @@
       }
     },
     "production": {
+      "developmentClient": false,
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "ios": {
+        "buildConfiguration": "Release",
+        "simulator": false,
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_USE_FAST_RESOLVER": "1"
+      },
+      "credentialsSource": "remote"
     }
   },
   "submit": {
@@ -34,9 +45,8 @@
       },
       "android": {
         "serviceAccountKeyPath": "./service-account-key.json",
-        "track": "internal"
+        "track": "production"
       }
     }
   }
 }
-

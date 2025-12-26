@@ -36,6 +36,9 @@ yarn-error.*
 .env.production
 .env.development
 
+# Google Play service account key (NEVER commit this!)
+service-account-key.json
+
 # typescript
 *.tsbuildinfo
 

@@ -6,58 +6,97 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useResponsive } from '../utils/useResponsive';
 
 const AttendanceScreen: React.FC = () => {
+  const responsive = useResponsive();
 
   return (
     <ScrollView 
       style={styles.container} 
-      contentContainerStyle={styles.scrollContainer}
+      contentContainerStyle={[
+        styles.scrollContainer,
+        responsive.isTablet && {
+          paddingHorizontal: responsive.horizontalPadding,
+        }
+      ]}
       showsVerticalScrollIndicator={false}
     >
+      <View style={[
+        styles.contentWrapper,
+        responsive.isTablet && {
+          maxWidth: responsive.maxContentWidth,
+          alignSelf: 'center',
+          width: '100%',
+        }
+      ]}>
       <View style={styles.header}>
-        <View style={styles.iconContainer}>
+        {/* <View style={styles.iconContainer}>
           <Ionicons name="information-circle" size={48} color="#8B0000" />
-        </View>
+        </View> */}
         {/* <Text style={styles.title}>How to Mark Attendance</Text> */}
-        <Text style={styles.subtitle}>
+        {/* <Text style={styles.subtitle}>
           Follow these simple steps to mark your attendance
-        </Text>
+        </Text> */}
       </View>
 
       <View style={styles.stepsContainer}>
         <View style={styles.stepCard}>
           <View style={styles.stepNumber}>
-            <Ionicons name="qr-code" size={20} color="#fff" />
+            <Text style={styles.stepNumberText}>1</Text>
           </View>
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Scan QR Code</Text>
+            <View style={styles.stepTitleRow}>
+              {/* <Ionicons name="school" size={20} color="#8B0000" style={styles.stepIcon} /> */}
+              <Text style={styles.stepTitle}>Enroll in Classes</Text>
+            </View>
             <Text style={styles.stepDescription}>
-              Use the QR Scanner tab to scan the QR code displayed by your instructor
+              Go to Dashboard and enroll in the classes you're taking. You can only mark attendance for enrolled classes.
             </Text>
           </View>
         </View>
 
         <View style={styles.stepCard}>
           <View style={styles.stepNumber}>
-            <Ionicons name="keypad" size={20} color="#fff" />
+            <Text style={styles.stepNumberText}>2</Text>
           </View>
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Or Enter OTP</Text>
+            <View style={styles.stepTitleRow}>
+              {/* <Ionicons name="time" size={20} color="#8B0000" style={styles.stepIcon} /> */}
+              <Text style={styles.stepTitle}>Clock In</Text>
+            </View>
             <Text style={styles.stepDescription}>
-              If scanning doesn't work, tap "Enter OTP" in the QR Scanner and enter the code manually
+              Use the QR Scanner tab to scan the QR code or enter the OTP code to clock in when class starts. Your location will be verified automatically.
             </Text>
           </View>
         </View>
 
         <View style={styles.stepCard}>
           <View style={styles.stepNumber}>
-            <Ionicons name="location" size={20} color="#fff" />
+            <Text style={styles.stepNumberText}>3</Text>
           </View>
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Verify Location</Text>
+            <View style={styles.stepTitleRow}>
+              {/* <Ionicons name="hourglass" size={20} color="#8B0000" style={styles.stepIcon} /> */}
+              <Text style={styles.stepTitle}>Wait for Class to End</Text>
+            </View>
             <Text style={styles.stepDescription}>
-              Make sure you're physically present in the classroom with location services enabled
+              Stay in class and wait for the session to end. You'll see a countdown timer showing when you can clock out.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.stepCard}>
+          <View style={styles.stepNumber}>
+            <Text style={styles.stepNumberText}>4</Text>
+          </View>
+          <View style={styles.stepContent}>
+            <View style={styles.stepTitleRow}>
+              {/* <Ionicons name="log-out" size={20} color="#8B0000" style={styles.stepIcon} /> */}     
+              <Text style={styles.stepTitle}>Clock Out</Text>
+            </View>
+            <Text style={styles.stepDescription}>
+              Once class ends, tap the "Clock Out" button to complete your attendance. Your attendance time will be recorded.
             </Text>
           </View>
         </View>
@@ -73,15 +112,21 @@ const AttendanceScreen: React.FC = () => {
         <View style={styles.infoList}>
           <View style={styles.infoItem}>
             <Ionicons name="checkmark-circle" size={18} color="#8B0000" />
-            <Text style={styles.infoText}>You must be physically present in the classroom</Text>
+            <Text style={styles.infoText}>You must be physically present in the classroom for both clock in and clock out</Text>
           </View>
           <View style={styles.infoItem}>
             <Ionicons name="checkmark-circle" size={18} color="#8B0000" />
-            <Text style={styles.infoText}>Location services must be enabled</Text>
+            <Text style={styles.infoText}>Location services must be enabled on your device</Text>
           </View>
           <View style={styles.infoItem}>
             <Ionicons name="checkmark-circle" size={18} color="#8B0000" />
-            <Text style={styles.infoText}>You must be within 50 meters of the class location</Text>
+            <Text style={styles.infoText}>You must be within 2 meters of the class location</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Ionicons name="time" size={18} color="#8B0000" />
+            <Text style={styles.infoText}>
+              You must wait for the class session to end before you can clock out
+            </Text>
           </View>
           <View style={styles.infoItem}>
             <Ionicons name="information-circle" size={18} color="#ff9800" />
@@ -90,6 +135,7 @@ const AttendanceScreen: React.FC = () => {
             </Text>
           </View>
         </View>
+      </View>
       </View>
     </ScrollView>
   );
@@ -104,10 +150,13 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  contentWrapper: {
+    width: '100%',
+  },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
-    marginTop: 8,
+    marginBottom: 5,
+    // marginTop: 8,
   },
   iconContainer: {
     width: 80,
@@ -137,12 +186,12 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: '#666',
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 22,
-    paddingHorizontal: 20,
+    // paddingHorizontal: 20,
   },
   stepsContainer: {
-    marginBottom: 28,
+    // marginBottom: 10,
   },
   stepCard: {
     backgroundColor: '#fff',
@@ -179,15 +228,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  stepNumberText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
   stepContent: {
     flex: 1,
     paddingTop: 2,
+  },
+  stepTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  stepIcon: {
+    marginRight: 8,
   },
   stepTitle: {
     fontSize: 17,
     fontWeight: '600',
     color: '#1a1a1a',
-    marginBottom: 6,
     letterSpacing: -0.3,
   },
   stepDescription: {

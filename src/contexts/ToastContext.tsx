@@ -69,7 +69,7 @@ export const ToastProvider: React.FC<PopupProviderProps> = ({ children }) => {
   );
 
   const showError = useCallback(
-    (message: string, title: string = 'Error', duration: number = 0) => {
+    (message: string, title?: string, duration: number = 0) => {
       showPopup(message, 'error', title, duration);
     },
     [showPopup]

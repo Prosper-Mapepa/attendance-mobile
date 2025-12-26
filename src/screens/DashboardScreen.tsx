@@ -11,9 +11,11 @@ import {
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useTour } from '../contexts/TourContext';
+import { useResponsive } from '../utils/useResponsive';
 import api from '../config/api';
 
 interface Class {
@@ -47,6 +49,8 @@ interface AttendanceRecord {
 }
 
 const DashboardScreen: React.FC = () => {
+  const navigation = useNavigation();
+  const responsive = useResponsive();
   const { user, logout } = useAuth();
   const { showSuccess, showError, showConfirm } = useToast();
   const { startTour } = useTour();
@@ -169,16 +173,37 @@ const DashboardScreen: React.FC = () => {
   }
 
   return (
-    <ScrollView
+      <ScrollView
       style={styles.container}
+      contentContainerStyle={responsive.isTablet ? {
+        paddingHorizontal: 0,
+      } : undefined}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
       <View style={styles.header}>
-        <View>
-          <Text style={styles.welcomeText}>Welcome,</Text>
-          <Text style={styles.userName}>{user?.name}</Text>
+        <View style={styles.headerLeft}>
+          {/* <View style={styles.userAvatar}>
+            <Text style={styles.userInitials}>
+              {user?.name 
+                ? (() => {
+                    const nameParts = user.name.trim().split(/\s+/);
+                    if (nameParts.length >= 2) {
+                      const firstInitial = nameParts[0][0]?.toUpperCase() || '';
+                      const lastInitial = nameParts[nameParts.length - 1][0]?.toUpperCase() || '';
+                      return `${firstInitial}${lastInitial}`;
+                    }
+                    return nameParts[0]?.[0]?.toUpperCase() || user.name;
+                  })()
+                : 'U'
+              }
+            </Text>
+          </View> */}
+          <View style={styles.userGreeting}>
+            <Text style={styles.welcomeText}>Hello!</Text>
+            <Text style={styles.userName}>{user?.name?.split(' ')[0] || 'User'}</Text>
+          </View>
         </View>
         <View style={styles.headerButtons}>
           <TouchableOpacity 
@@ -186,11 +211,24 @@ const DashboardScreen: React.FC = () => {
             onPress={startTour}
             activeOpacity={0.7}
           >
-            <Ionicons name="help-circle-outline" size={20} color="#8B0000" />
-            <Text style={styles.tourButtonText}>Tour</Text>
+            <Ionicons name="help-circle" size={28} color="#8B0000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
+          <TouchableOpacity 
+            style={styles.accountButton} 
+            onPress={() => {
+              // @ts-ignore - navigation type from Tab to Stack
+              navigation.getParent()?.navigate('Profile');
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="person-circle" size={28} color="#8B0000" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.logoutButton} 
+            onPress={handleLogout}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="power" size={24} color="#8B0000" />
           </TouchableOpacity>
         </View>
       </View>
@@ -198,17 +236,40 @@ const DashboardScreen: React.FC = () => {
     
 
       {/* Tabs */}
-      <View style={styles.tabContainer}>
+      <View style={[
+        styles.tabContainer,
+        responsive.isTablet && styles.tabContainerTablet
+      ]}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'myClasses' && styles.activeTab]}
           onPress={() => {
             setActiveTab('myClasses');
             setMyClassesSearch('');
           }}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.tabText, activeTab === 'myClasses' && styles.activeTabText]}>
-            My Classes <Text style={styles.tabTextCount}>({enrollments.length})</Text>
-          </Text>
+          <View style={styles.tabContent}>
+            {/* <Ionicons 
+              name={activeTab === 'myClasses' ? 'book' : 'book-outline'} 
+              size={20} 
+              color={activeTab === 'myClasses' ? '#8B0000' : '#666'} 
+              style={styles.tabIcon}
+            /> */}
+            <Text style={[styles.tabText, activeTab === 'myClasses' && styles.activeTabText]}>
+              My Classes
+            </Text>
+            {/* <View style={[
+              styles.tabBadge,
+              activeTab === 'myClasses' && styles.tabBadgeActive
+            ]}>
+              <Text style={[
+                styles.tabBadgeText,
+                activeTab === 'myClasses' && styles.tabBadgeTextActive
+              ]}>
+                {enrollments.length}
+              </Text>
+            </View> */}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'enrollClass' && styles.activeTab]}
@@ -216,18 +277,43 @@ const DashboardScreen: React.FC = () => {
             setActiveTab('enrollClass');
             setEnrollClassesSearch('');
           }}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.tabText, activeTab === 'enrollClass' && styles.activeTabText]}>
-            Enroll Classes <Text style={styles.tabTextCount}>({availableClassesToShow.length})</Text>
-          </Text>
+          <View style={styles.tabContent}>
+            {/* <Ionicons 
+              name={activeTab === 'enrollClass' ? 'add-circle' : 'add-circle-outline'} 
+              size={20} 
+              color={activeTab === 'enrollClass' ? '#8B0000' : '#666'} 
+              style={styles.tabIcon}
+            /> */}
+            <Text style={[styles.tabText, activeTab === 'enrollClass' && styles.activeTabText]}>
+              Enroll Classes
+            </Text>
+            {/* <View style={[
+              styles.tabBadge,
+              activeTab === 'enrollClass' && styles.tabBadgeActive
+            ]}>
+              <Text style={[
+                styles.tabBadgeText,
+                activeTab === 'enrollClass' && styles.tabBadgeTextActive
+              ]}>
+                {availableClassesToShow.length}
+              </Text>
+            </View> */}
+          </View>
         </TouchableOpacity>
       </View>
 
       {/* Tab Content */}
       {activeTab === 'myClasses' ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>My Classes </Text>
-          <View style={styles.searchContainer}>
+        <View style={[
+          styles.section,
+          responsive.isTablet && styles.sectionTablet
+        ]}>
+          <View style={[
+            styles.searchContainer,
+            responsive.isTablet && styles.searchContainerTablet
+          ]}>
             <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
@@ -249,7 +335,7 @@ const DashboardScreen: React.FC = () => {
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No classes enrolled</Text>
               <Text style={styles.emptySubtext}>
-                Switch to "Enroll Class" tab to browse available classes
+                Switch to "Enroll Classes" tab to browse available classes
               </Text>
             </View>
           ) : filteredMyClasses.length === 0 ? (
@@ -260,50 +346,73 @@ const DashboardScreen: React.FC = () => {
               </Text>
             </View>
           ) : (
-            filteredMyClasses.map((classItem) => {
+            <View style={[
+              responsive.isTablet ? styles.classesGrid : undefined,
+              responsive.isTablet && styles.classesGridContainer
+            ]}>
+            {filteredMyClasses.map((classItem) => {
               const enrollment = enrollments.find(e => e.class.id === classItem.id);
               if (!enrollment) return null;
               return (
-              <View key={enrollment.id} style={styles.classCard}>
+              <View key={enrollment.id} style={[
+                styles.classCard,
+                responsive.isTablet && styles.classCardTablet
+              ]}>
                 <View style={styles.classHeader}>
-                  <Text style={styles.className}>{classItem.name}</Text>
+                  <View style={styles.classTitleRow}>
+                    <Text style={styles.className}>{classItem.name}</Text>
+                  </View>
                   {classItem.subject && (
                     <Text style={styles.classSubject}>{classItem.subject}</Text>
                   )}
                 </View>
-                {classItem.teacher && (
-                  <Text style={styles.teacherName}>
-                    Teacher: {classItem.teacher.name}
-                  </Text>
-                )}
-                {classItem.schedule && (
-                  <Text style={styles.classSchedule}>{classItem.schedule}</Text>
-                )}
+                {/* <View style={styles.classInfoContainer}>
+                  {classItem.teacher && (
+                    <View style={styles.classInfoRow}>
+                      <Ionicons name="person" size={16} color="#8B0000" style={styles.infoIcon} />
+                      <Text style={styles.teacherName}>{classItem.teacher.name}</Text>
+                    </View>
+                  )}
+                  {classItem.schedule && (
+                    <View style={styles.classInfoRow}>
+                      <Ionicons name="time" size={16} color="#8B0000" style={styles.infoIcon} />
+                      <Text style={styles.classSchedule}>{classItem.schedule}</Text>
+                    </View>
+                  )}
+                </View> */}
                 <View style={styles.buttonRow}>
                   <TouchableOpacity
                     style={styles.viewButton}
                     onPress={() => setViewingClass(classItem)}
+                    activeOpacity={0.7}
                   >
+                    <Ionicons name="eye" size={16} color="#333" style={styles.buttonIcon} />
                     <Text style={styles.viewButtonText}>View</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.unenrollButton}
                     onPress={() => unenrollFromClass(classItem.id)}
+                    activeOpacity={0.8}
                   >
+                    <Ionicons name="remove-circle" size={16} color="#fff" style={styles.buttonIcon} />
                     <Text style={styles.unenrollButtonText}>Unenroll</Text>
                   </TouchableOpacity>
                 </View>
               </View>
               );
-            })
+            })}
+            </View>
           )}
         </View>
       ) : (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Available Classes 
-          </Text>
-          <View style={styles.searchContainer}>
+        <View style={[
+          styles.section,
+          responsive.isTablet && styles.sectionTablet
+        ]}>
+          <View style={[
+            styles.searchContainer,
+            responsive.isTablet && styles.searchContainerTablet
+          ]}>
             <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
@@ -325,7 +434,7 @@ const DashboardScreen: React.FC = () => {
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No classes available</Text>
               <Text style={styles.emptySubtext}>
-                Contact your teacher to create classes
+                Contact your Instructor to create classes
               </Text>
             </View>
           ) : filteredEnrollClasses.length === 0 ? (
@@ -336,27 +445,44 @@ const DashboardScreen: React.FC = () => {
               </Text>
             </View>
           ) : (
-            filteredEnrollClasses.map((classItem) => (
-              <View key={classItem.id} style={styles.classCard}>
+            <View style={[
+              responsive.isTablet ? styles.classesGrid : undefined,
+              responsive.isTablet && styles.classesGridContainer
+            ]}>
+            {filteredEnrollClasses.map((classItem) => (
+              <View key={classItem.id} style={[
+                styles.classCard,
+                responsive.isTablet && styles.classCardTablet
+              ]}>
                 <View style={styles.classHeader}>
-                  <Text style={styles.className}>{classItem.name}</Text>
+                  <View style={styles.classTitleRow}>
+                    <Text style={styles.className}>{classItem.name}</Text>
+                  </View>
                   {classItem.subject && (
                     <Text style={styles.classSubject}>{classItem.subject}</Text>
                   )}
                 </View>
-                {classItem.teacher && (
-                  <Text style={styles.teacherName}>
-                    Teacher: {classItem.teacher.name}
-                  </Text>
-                )}
-                {classItem.schedule && (
-                  <Text style={styles.classSchedule}>{classItem.schedule}</Text>
-                )}
+                {/* <View style={styles.classInfoContainer}>
+                  {classItem.teacher && (
+                    <View style={styles.classInfoRow}>
+                      <Ionicons name="person" size={16} color="#8B0000" style={styles.infoIcon} />
+                      <Text style={styles.teacherName}>{classItem.teacher.name}</Text>
+                    </View>
+                  )}
+                  {classItem.schedule && (
+                    <View style={styles.classInfoRow}>
+                      <Ionicons name="time" size={16} color="#8B0000" style={styles.infoIcon} />
+                      <Text style={styles.classSchedule}>{classItem.schedule}</Text>
+                    </View>
+                  )}
+                </View> */}
                 <View style={styles.buttonRow}>
                   <TouchableOpacity
                     style={styles.viewButton}
                     onPress={() => setViewingClass(classItem)}
+                    activeOpacity={0.7}
                   >
+                    <Ionicons name="eye" size={16} color="#333" style={styles.buttonIcon} />
                     <Text style={styles.viewButtonText}>View</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -366,16 +492,21 @@ const DashboardScreen: React.FC = () => {
                     ]}
                     onPress={() => enrollInClass(classItem.id)}
                     disabled={enrolling === classItem.id}
+                    activeOpacity={0.8}
                   >
                     {enrolling === classItem.id ? (
-                      <ActivityIndicator color="#000" size="small" />
+                      <ActivityIndicator color="#8B0000" size="small" />
                     ) : (
-                      <Text style={styles.enrollButtonText}>Enroll</Text>
+                      <>
+                        <Ionicons name="add-circle" size={16} color="#8B0000" style={styles.buttonIcon} />
+                        <Text style={styles.enrollButtonText}>Enroll</Text>
+                      </>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
-            ))
+            ))}
+            </View>
           )}
         </View>
       )}
@@ -472,8 +603,14 @@ const DashboardScreen: React.FC = () => {
       </Modal>
 
       {/* Recent Attendance */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Attendance</Text>
+      {/* <View style={[
+        styles.section,
+        responsive.isTablet && styles.sectionTablet
+      ]}>
+        <Text style={[
+          styles.sectionTitle,
+          responsive.isTablet && styles.sectionTitleTablet
+        ]}>Recent Attendance</Text>
         {attendanceRecords.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No attendance records</Text>
@@ -498,7 +635,7 @@ const DashboardScreen: React.FC = () => {
             </View>
           ))
         )}
-      </View>
+      </View> */}
     </ScrollView>
   );
 };
@@ -523,47 +660,115 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
     backgroundColor: '#8B0000',
   },
-  welcomeText: {
-    fontSize: 16,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  headerButtons: {
+  headerLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  tourButton: {
+  userAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  userInitials: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  userGreeting: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginRight: 8,
+  },
+  welcomeText: {
+    fontSize: 13,
+    color: '#fff',
+    opacity: 0.85,
+    marginBottom: 2,
+    fontWeight: '400',
+    letterSpacing: 0.3,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+    letterSpacing: -0.3,
+  },
+  headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  tourButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     backgroundColor: '#fff',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tourButtonText: {
     color: '#8B0000',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 13,
+  },
+  accountButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   logoutButton: {
-    backgroundColor: '#FFD700', // CMU Gold
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#FFD700',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  logoutIcon: {
+    marginRight: 0,
   },
   logoutText: {
     color: '#8B0000',
     fontWeight: '600',
+    fontSize: 13,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -593,122 +798,166 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   section: {
-    padding: 20,
+    padding: 16,
+    paddingTop: 20,
+  },
+  sectionTablet: {
+    paddingHorizontal: 40,
+    paddingVertical: 24,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#333',
-    marginBottom: 12,
+    marginBottom: 16,
+    letterSpacing: -0.3,
+  },
+  sectionTitleTablet: {
+    fontSize: 22,
+    marginBottom: 20,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 0.2,
+    borderColor: '#e9ecef',
+    height: 48,
+  },
+  searchContainerTablet: {
+    maxWidth: '100%',
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
     color: '#333',
-    paddingVertical: 12,
+    paddingVertical: 0,
   },
   clearButton: {
     padding: 4,
   },
   emptyState: {
-    backgroundColor: '#fff',
-    padding: 30,
-    borderRadius: 12,
+    backgroundColor: '#f8f9fa',
+    padding: 40,
+    borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
   },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
-    marginBottom: 5,
+    color: '#495057',
+    marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#999',
+    color: '#6c757d',
     textAlign: 'center',
+    lineHeight: 20,
   },
   classCard: {
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  classCardTablet: {
+    flex: 1,
+    minWidth: 300,
+    maxWidth: 400,
+    marginBottom: 0,
+  },
+  classesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  classesGridContainer: {
+    marginTop: 0,
   },
   classHeader: {
-    marginBottom: 8,
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  classTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   className: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    letterSpacing: -0.3,
   },
   classSubject: {
-    fontSize: 14,
-    color: '#8B0000',
-    fontWeight: '600',
+    fontSize: 15,
+    color: '#333',
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  classInfoContainer: {
+    marginBottom: 16,
+    gap: 10,
+  },
+  classInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoIcon: {
+    marginRight: 2,
   },
   classSchedule: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
+    color: '#495057',
+    flex: 1,
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     marginTop: 4,
   },
   viewButton: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 10,
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#e9ecef',
+    gap: 6,
   },
   viewButtonText: {
-    color: '#333',
-    fontSize: 16,
+    color: '#495057',
+    fontSize: 15,
     fontWeight: '600',
+  },
+  buttonIcon: {
+    marginRight: 0,
   },
   attendanceCard: {
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
+    padding: 18,
+    borderRadius: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   attendanceHeader: {
     flexDirection: 'row',
@@ -732,64 +981,109 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingHorizontal: 0,
+    // paddingTop: 8,
     paddingBottom: 0,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#e9ecef',
+  },
+  tabContainerTablet: {
+    paddingHorizontal: 0,
+    maxWidth: '100%',
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 20,
     alignItems: 'center',
-    borderBottomWidth: 2,
+    borderBottomWidth: 3,
     borderBottomColor: 'transparent',
+    backgroundColor: 'transparent',
+    marginHorizontal: 0,
   },
   activeTab: {
     borderBottomColor: '#8B0000',
+    backgroundColor: '#fff5f5',
+  },
+  tabContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  tabIcon: {
+    marginRight: 2,
   },
   tabText: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
     color: '#666',
+    letterSpacing: 0.2,
   },
   activeTabText: {
     color: '#8B0000',
+    fontWeight: '700',
+  },
+  tabBadge: {
+    backgroundColor: '#e0e0e0',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  tabBadgeActive: {
+    backgroundColor: '#8B0000',
+  },
+  tabBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#666',
+  },
+  tabBadgeTextActive: {
+    color: '#fff',
   },
   teacherName: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+    color: '#495057',
+    flex: 1,
   },
   enrollButton: {
     flex: 1,
     backgroundColor: '#FFD700',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   enrollButtonDisabled: {
     opacity: 0.7,
   },
   enrollButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#8B0000',
+    fontSize: 15,
+    fontWeight: '700',
   },
   unenrollButton: {
     flex: 1,
     backgroundColor: '#8B0000',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   unenrollButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,

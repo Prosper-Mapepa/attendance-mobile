@@ -164,18 +164,27 @@ const Popup: React.FC<PopupProps> = ({
         >
           <View style={styles.popup}>
             <View style={[styles.iconContainer, { backgroundColor: popupStyles.iconBg }]}>
+              {type === 'error' ? (
+                <Text style={styles.emojiIcon}>😕</Text>
+              ) : (
               <Ionicons
                 name={popupStyles.icon}
                 size={48}
                 color={popupStyles.iconColor}
               />
+              )}
             </View>
 
+            {type === 'error' ? (
+              <Text style={styles.message}>{message}</Text>
+            ) : (
+              <>
             {title && (
               <Text style={styles.title}>{title}</Text>
+                )}
+                <Text style={styles.message}>{message}</Text>
+              </>
             )}
-
-            <Text style={styles.message}>{message}</Text>
 
             <View style={styles.buttonContainer}>
               {isConfirm ? (
@@ -249,6 +258,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  emojiIcon: {
+    fontSize: 48,
+  },
   title: {
     fontSize: 22,
     fontWeight: 'bold',
@@ -258,10 +270,11 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 16,
-    color: '#666',
+    color: '#1a1a1a',
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 24,
+    fontWeight: '400',
   },
   buttonContainer: {
     flexDirection: 'row',

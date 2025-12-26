@@ -146,7 +146,7 @@ const ClassesScreen: React.FC = () => {
                 )}
               </View>
               <Text style={styles.teacherName}>
-                Teacher: {enrollment.class.teacher.name}
+                Instructor: {enrollment.class.teacher.name}
               </Text>
               {enrollment.class.schedule && (
                 <Text style={styles.classSchedule}>{enrollment.class.schedule}</Text>
@@ -175,7 +175,7 @@ const ClassesScreen: React.FC = () => {
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No classes available</Text>
             <Text style={styles.emptySubtext}>
-              Contact your teacher to create classes
+              Contact your instructor to create classes
             </Text>
           </View>
         ) : (
@@ -188,7 +188,7 @@ const ClassesScreen: React.FC = () => {
                 )}
               </View>
               <Text style={styles.teacherName}>
-                Teacher: {classItem.teacher.name}
+                Instructor: {classItem.teacher.name}
               </Text>
               {classItem.schedule && (
                 <Text style={styles.classSchedule}>{classItem.schedule}</Text>
