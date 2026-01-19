@@ -56,13 +56,17 @@ const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     checkBiometric();
   }, [biometricAvailable, hasBiometricEnabled]);
 
-  const validateEmail = (email: string): { isValid: boolean; error?: string } => {
+  const validateEmail = (email: string, restrictDomain: boolean = false): { isValid: boolean; error?: string } => {
     if (!email.trim()) {
       return { isValid: false, error: 'Email is required' };
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       return { isValid: false, error: 'Please enter a valid email address' };
+    }
+    // Restrict to @cmich.edu domain only for signup
+    if (restrictDomain && !email.trim().endsWith('@cmich.edu')) {
+      return { isValid: false, error: 'Email must be from @cmich.edu domain' };
     }
     return { isValid: true };
   };
@@ -271,7 +275,7 @@ const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       return;
     }
 
-    const emailValidation = validateEmail(email.trim());
+    const emailValidation = validateEmail(email.trim(), true); // true = restrict to @cmich.edu for signup
     if (!emailValidation.isValid) {
       showError(emailValidation.error || 'Please enter a valid email address');
       return;
@@ -528,13 +532,12 @@ const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           )}
         </View>
 
-          <View style={styles.footer}>
-            {/* <Text style={styles.footerText}>
-            </Text> */}
+          {/* <View style={styles.footer}>
+          
             <Text style={styles.footerSubtext}>
               Version 1.0.0
             </Text>
-          </View>
+          </View> */}
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>

@@ -19,6 +19,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   isAuthenticated: boolean;
   biometricAvailable: boolean;
   enableBiometric: (email: string, password: string) => Promise<void>;
@@ -33,7 +34,13 @@ export const useAuth = () => {
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  return context;
+  // Ensure all boolean values are strictly typed
+  return {
+    ...context,
+    loading: Boolean(context.loading),
+    isAuthenticated: Boolean(context.isAuthenticated),
+    biometricAvailable: Boolean(context.biometricAvailable),
+  };
 };
 
 interface AuthProviderProps {
@@ -42,8 +49,8 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [biometricAvailable, setBiometricAvailable] = useState<boolean>(false);
 
   useEffect(() => {
     checkBiometricAvailability();
@@ -54,10 +61,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       const enrolled = await LocalAuthentication.isEnrolledAsync();
-      setBiometricAvailable(compatible && enrolled);
+      setBiometricAvailable(Boolean(compatible && enrolled));
     } catch (error) {
       console.error('Error checking biometric availability:', error);
-      setBiometricAvailable(false);
+      setBiometricAvailable(Boolean(false));
     }
   };
 
@@ -73,7 +80,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Auth check failed:', error);
       await AsyncStorage.removeItem('token');
     } finally {
-      setLoading(false);
+      setLoading(Boolean(false));
     }
   };
 
@@ -251,16 +258,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      await api.post('/auth/delete-account');
+      // Clear all local data
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('has_clocked_in');
+      await AsyncStorage.removeItem('login_restriction_timestamp');
+      // Clear biometric credentials
+      await SecureStore.deleteItemAsync('biometric_email');
+      await SecureStore.deleteItemAsync('biometric_password');
+      await AsyncStorage.removeItem('biometric_enabled');
+      setUser(null);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to delete account');
+    }
+  };
+
+  // Ensure all boolean values are explicitly converted to prevent type issues
+  const safeLoading = typeof loading === 'boolean' ? loading : Boolean(loading);
+  const safeBiometricAvailable = typeof biometricAvailable === 'boolean' ? biometricAvailable : Boolean(biometricAvailable);
+  const safeIsAuthenticated = Boolean(user);
+
   const value: AuthContextType = {
     user,
-    loading,
+    loading: safeLoading,
     login,
     register,
     logout,
     forgotPassword,
     resetPassword,
-    isAuthenticated: !!user,
-    biometricAvailable,
+    deleteAccount,
+    isAuthenticated: safeIsAuthenticated,
+    biometricAvailable: safeBiometricAvailable,
     enableBiometric,
     loginWithBiometric,
     hasBiometricEnabled,

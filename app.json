@@ -2,7 +2,7 @@
   "expo": {
     "name": "AttendIQ",
     "slug": "attendiq",
-    "version": "1.0.8",
+    "version": "1.1.1",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.prospermap.attendiq",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to camera to scan QR codes for attendance marking.",
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to verify classroom attendance.",
@@ -27,8 +27,8 @@
       "scheme": "attendiq"
     },
     "android": {
-      "package": "com.prospermap.attendiq",
-      "versionCode": 9,
+      "package": "com.attendiq.app",
+      "versionCode": 11,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#8B0000"

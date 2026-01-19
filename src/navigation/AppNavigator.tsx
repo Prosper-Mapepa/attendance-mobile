@@ -124,11 +124,22 @@ const MainTabs: React.FC = () => {
 };
 
 const AppNavigator: React.FC = () => {
-  const { isAuthenticated, loading } = useAuth();
-  const { showTour, setShowTour } = useTour();
+  const auth = useAuth();
+  const tour = useTour();
+  
+  // Ensure strict boolean types - convert immediately to prevent React Native type errors
+  const isAuthenticated = Boolean(auth.isAuthenticated);
+  const loading = Boolean(auth.loading);
+  const showTour = Boolean(tour.showTour);
+  const setShowTour = tour.setShowTour;
+
+  // Use converted values consistently
+  const isAuth = isAuthenticated;
+  const isLoading = loading;
+  const showTourBool = showTour;
 
   const checkTourStatus = useCallback(async () => {
-    if (isAuthenticated && !loading) {
+    if (isAuth && !isLoading) {
       try {
         const isNewUser = await AsyncStorage.getItem('isNewUser');
         
@@ -149,17 +160,17 @@ const AppNavigator: React.FC = () => {
         console.error('Error checking tour status:', error);
       }
     }
-  }, [isAuthenticated, loading, setShowTour]);
+  }, [isAuth, isLoading, setShowTour]);
 
   useEffect(() => {
-    if (!loading && isAuthenticated) {
+    if (!isLoading && isAuth) {
       // Add a small delay to ensure navigation has completed
       const timer = setTimeout(() => {
       checkTourStatus();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [loading, isAuthenticated, checkTourStatus]);
+  }, [isLoading, isAuth, checkTourStatus]);
 
   const handleTourComplete = () => {
     setShowTour(false);
@@ -168,7 +179,7 @@ const AppNavigator: React.FC = () => {
   // Handle deep linking for password reset (optional - NavigationContainer handles it)
   // The linking config in NavigationContainer will handle deep links automatically
 
-  if (loading) {
+  if (isLoading) {
     return null; // You can add a loading screen here
   }
 
@@ -197,7 +208,7 @@ const AppNavigator: React.FC = () => {
       }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
+        {isAuth ? (
           <>
           <Stack.Screen name="MainTabs" component={MainTabs} />
             <Stack.Screen 
@@ -237,8 +248,8 @@ const AppNavigator: React.FC = () => {
           </>
         )}
       </Stack.Navigator>
-      {isAuthenticated && (
-        <TourGuide visible={showTour} onComplete={handleTourComplete} />
+      {isAuth && (
+        <TourGuide visible={showTourBool} onComplete={handleTourComplete} />
       )}
     </NavigationContainer>
   );

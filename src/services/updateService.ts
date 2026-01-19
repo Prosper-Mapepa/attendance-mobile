@@ -17,6 +17,7 @@ export const checkForUpdates = async (): Promise<UpdateInfo> => {
   try {
     // Only check for updates in production builds
     if (__DEV__) {
+      console.log('Update check skipped: Running in development mode');
       return {
         isAvailable: false,
         isUpdatePending: false,
@@ -26,6 +27,7 @@ export const checkForUpdates = async (): Promise<UpdateInfo> => {
     }
 
     if (!Updates.isEnabled) {
+      console.log('Update check skipped: Updates not enabled');
       return {
         isAvailable: false,
         isUpdatePending: false,
@@ -34,7 +36,12 @@ export const checkForUpdates = async (): Promise<UpdateInfo> => {
       };
     }
 
+    console.log('Checking for updates...');
     const update = await Updates.checkForUpdateAsync();
+    console.log('Update check response:', {
+      isAvailable: update.isAvailable,
+      manifest: update.manifest ? 'present' : 'null',
+    });
     
     return {
       isAvailable: update.isAvailable,

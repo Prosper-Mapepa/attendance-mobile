@@ -1,15 +1,28 @@
 {
   "cli": {
     "version": ">= 5.2.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
+        "simulator": false,
+        "buildConfiguration": "Debug"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "development"
+    },
+    "development-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
         "simulator": true
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -18,7 +31,8 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "developmentClient": false,
@@ -33,7 +47,8 @@
       "env": {
         "EXPO_USE_FAST_RESOLVER": "1"
       },
-      "credentialsSource": "remote"
+      "credentialsSource": "remote",
+      "channel": "production"
     }
   },
   "submit": {

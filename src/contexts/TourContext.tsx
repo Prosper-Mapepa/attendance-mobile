@@ -13,7 +13,11 @@ export const useTour = () => {
   if (!context) {
     throw new Error('useTour must be used within a TourProvider');
   }
-  return context;
+  // Ensure boolean value is strictly typed
+  return {
+    ...context,
+    showTour: Boolean(context.showTour),
+  };
 };
 
 interface TourProviderProps {
@@ -21,15 +25,20 @@ interface TourProviderProps {
 }
 
 export const TourProvider: React.FC<TourProviderProps> = ({ children }) => {
-  const [showTour, setShowTour] = useState(false);
+  const [showTour, setShowTour] = useState<boolean>(false);
+  
+  // Ensure setShowTour always receives a boolean
+  const setShowTourSafe = (value: boolean) => {
+    setShowTour(Boolean(value));
+  };
 
   const startTour = () => {
-    setShowTour(true);
+    setShowTourSafe(true);
   };
 
   const value: TourContextType = {
-    showTour,
-    setShowTour,
+    showTour: Boolean(showTour),
+    setShowTour: setShowTourSafe,
     startTour,
   };
 

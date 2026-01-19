@@ -31,9 +31,12 @@ const QRScannerScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
   const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
+  const [locationLoading, setLocationLoading] = useState(true); // Track if location is being fetched
+  const [locationReady, setLocationReady] = useState(false); // Track if location is fully ready
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [cameraReady, setCameraReady] = useState(false);
+  const [zoom, setZoom] = useState(0); // Camera zoom level (0-1)
   
   // Enhanced Security States
   const [showSMSModal, setShowSMSModal] = useState(false);
@@ -46,6 +49,9 @@ const QRScannerScreen: React.FC = () => {
   // Clock In/Out States
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [sessionEndTime, setSessionEndTime] = useState<Date | null>(null);
+  const [sessionCreatedAt, setSessionCreatedAt] = useState<Date | null>(null); // Server time when session was created
+  const [classDuration, setClassDuration] = useState<number | null>(null); // Class duration in minutes
+  const [serverTimeOffset, setServerTimeOffset] = useState<number>(0); // Offset between server and client time (ms)
   const [clockInTime, setClockInTime] = useState<Date | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
   const [canClockOut, setCanClockOut] = useState(false);
@@ -53,26 +59,159 @@ const QRScannerScreen: React.FC = () => {
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Load persisted clock-in session on mount and when component becomes visible
   useEffect(() => {
-    requestLocationPermission();
-    requestCameraPermissionIfNeeded();
+    const initializeSession = async () => {
+      console.log('QRScannerScreen mounted, loading persisted session...');
+      await loadPersistedSession();
+      requestLocationPermission();
+      requestCameraPermissionIfNeeded();
+    };
+    
+    initializeSession();
   }, []);
 
-  // Timer for clock out countdown
+  // Also reload session when user becomes authenticated (after login)
   useEffect(() => {
-    if (!isClockedIn || !sessionEndTime) return;
+    if (user) {
+      console.log('User authenticated, checking for persisted session...');
+      loadPersistedSession();
+    }
+  }, [user]);
+
+  // Check location status on mount and when permission changes
+  useEffect(() => {
+    const checkLocationStatus = async () => {
+      if (locationPermission) {
+        setLocationLoading(true);
+        try {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
+          setCurrentLocation(location);
+          setLocationReady(true);
+        } catch (error) {
+          console.error('Location fetch error:', error);
+          setLocationReady(false);
+        } finally {
+          setLocationLoading(false);
+        }
+      } else {
+        setLocationReady(false);
+        setLocationLoading(false);
+      }
+    };
+
+    checkLocationStatus();
+  }, [locationPermission]);
+
+  // Save clock-in session to AsyncStorage whenever it changes
+  useEffect(() => {
+    if (isClockedIn && sessionEndTime && sessionInfo && currentOTP) {
+      // Save even if sessionCreatedAt/classDuration are missing - timer will use sessionEndTime fallback
+      saveSessionToStorage({
+        isClockedIn: true,
+        sessionEndTime: sessionEndTime.toISOString(),
+        sessionCreatedAt: sessionCreatedAt?.toISOString() || sessionEndTime.toISOString(), // Fallback if missing
+        classDuration: classDuration || 0, // Fallback if missing
+        clockInTime: clockInTime?.toISOString() || new Date().toISOString(),
+        sessionInfo,
+        currentOTP,
+      });
+    } else if (!isClockedIn) {
+      // Clear session from storage when not clocked in
+      clearSessionFromStorage();
+    }
+  }, [isClockedIn, sessionEndTime, sessionCreatedAt, classDuration, clockInTime, sessionInfo, currentOTP]);
+
+  // Sync server time periodically to keep countdown synchronized across devices
+  // Only sync if we have sessionCreatedAt and classDuration for synchronized calculation
+  useEffect(() => {
+    if (!isClockedIn || !sessionCreatedAt || !classDuration) {
+      // If we don't have these fields, timer will use sessionEndTime fallback
+      return;
+    }
+
+    const syncServerTime = async () => {
+      try {
+        const startTime = Date.now();
+        // Use fetch directly to avoid auth token requirement for health endpoint
+        const response = await fetch('https://attendance-iq-api-production.up.railway.app/health');
+        const endTime = Date.now();
+        const data = await response.json();
+        
+        if (data.timestamp) {
+          const serverTime = new Date(data.timestamp).getTime();
+          const networkLatency = (endTime - startTime) / 2; // Approximate one-way latency
+          const adjustedServerTime = serverTime + networkLatency;
+          const clientTime = Date.now();
+          const offset = adjustedServerTime - clientTime;
+          
+          setServerTimeOffset(offset);
+          console.log('Server time synced. Offset:', offset, 'ms');
+        }
+      } catch (error) {
+        console.error('Error syncing server time:', error);
+        // Continue with client time if sync fails
+      }
+    };
+
+    // Sync immediately
+    syncServerTime();
+    
+    // Sync every 30 seconds to account for clock drift
+    const syncInterval = setInterval(syncServerTime, 30000);
+
+    return () => clearInterval(syncInterval);
+  }, [isClockedIn, sessionCreatedAt, classDuration]);
+
+  // Timer for clock out countdown - synchronized using server time
+  useEffect(() => {
+    if (!isClockedIn || !sessionEndTime) {
+      console.log('Timer not started. isClockedIn:', isClockedIn, 'sessionEndTime:', sessionEndTime);
+      return;
+    }
+
+    // Use synchronized calculation if we have sessionCreatedAt and classDuration
+    // Otherwise fall back to sessionEndTime (less accurate but works)
+    const calculateRemainingTime = () => {
+      if (sessionCreatedAt && classDuration) {
+        // Synchronized calculation using server time
+        const clientTime = Date.now();
+        const adjustedTime = clientTime + serverTimeOffset; // Adjust client time with server offset
+        const sessionEndTimeMs = sessionCreatedAt.getTime() + (classDuration * 60 * 1000);
+        const remaining = Math.max(0, sessionEndTimeMs - adjustedTime);
+        return remaining;
+      } else {
+        // Fallback: use sessionEndTime directly (less synchronized but functional)
+        const now = new Date();
+        const remaining = Math.max(0, sessionEndTime.getTime() - now.getTime());
+        return remaining;
+      }
+    };
+
+    console.log('Starting timer. Session end time:', sessionEndTime.toISOString(), 
+      sessionCreatedAt ? `Synchronized (created: ${sessionCreatedAt.toISOString()}, duration: ${classDuration}min)` : 'Using sessionEndTime fallback');
+    
+    // Calculate initial remaining time
+    const initialRemaining = calculateRemainingTime();
+    setTimeRemaining(initialRemaining);
+    setCanClockOut(initialRemaining === 0);
 
     const interval = setInterval(() => {
-      const now = new Date();
-      const remaining = Math.max(0, sessionEndTime.getTime() - now.getTime());
+      const remaining = calculateRemainingTime();
       setTimeRemaining(remaining);
       
-      // Allow clock out when session has ended (backend will validate minimum duration)
-      setCanClockOut(remaining === 0);
+      // Allow clock out when session has ended (remaining === 0)
+      const sessionEnded = remaining === 0;
+      setCanClockOut(sessionEnded);
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [isClockedIn, sessionEndTime]);
+    return () => {
+      console.log('Clearing timer interval');
+      clearInterval(interval);
+    };
+  }, [isClockedIn, sessionEndTime, sessionCreatedAt, classDuration, serverTimeOffset]);
 
 
   const requestCameraPermissionIfNeeded = async () => {
@@ -98,8 +237,103 @@ const QRScannerScreen: React.FC = () => {
     }
   };
 
+  // Save session to AsyncStorage
+  const saveSessionToStorage = async (sessionData: {
+    isClockedIn: boolean;
+    sessionEndTime: string;
+    sessionCreatedAt: string;
+    classDuration: number;
+    clockInTime: string;
+    sessionInfo: { sessionId: string; className: string; classSubject?: string };
+    currentOTP: string;
+  }) => {
+    try {
+      await AsyncStorage.setItem('clocked_in_session', JSON.stringify(sessionData));
+    } catch (error) {
+      console.error('Error saving session to storage:', error);
+    }
+  };
+
+  // Load session from AsyncStorage
+  const loadPersistedSession = async () => {
+    try {
+      const sessionData = await AsyncStorage.getItem('clocked_in_session');
+      if (sessionData) {
+        const parsed = JSON.parse(sessionData);
+        
+        // Check if session is still valid (not too old - e.g., not more than 24 hours)
+        const clockInTime = new Date(parsed.clockInTime);
+        const now = new Date();
+        const hoursSinceClockIn = (now.getTime() - clockInTime.getTime()) / (1000 * 60 * 60);
+        
+        // Restore session if it's less than 24 hours old AND user was clocked in
+        // Keep the session even if class has ended (so user can still clock out)
+        if (hoursSinceClockIn < 24 && parsed.isClockedIn) {
+          const sessionEndTimeDate = new Date(parsed.sessionEndTime);
+          const sessionCreatedAtDate = parsed.sessionCreatedAt ? new Date(parsed.sessionCreatedAt) : null;
+          const sessionClassDuration = parsed.classDuration || null;
+          
+          // Restore all session state - IMPORTANT: Restore in correct order
+          // First restore the data that doesn't trigger effects
+          setSessionInfo(parsed.sessionInfo);
+          setCurrentOTP(parsed.currentOTP);
+          setClockInTime(new Date(parsed.clockInTime));
+          
+          // Restore session timing data for synchronized countdown
+          if (sessionCreatedAtDate && sessionClassDuration) {
+            setSessionCreatedAt(sessionCreatedAtDate);
+            setClassDuration(sessionClassDuration);
+          } else {
+            // Fallback: calculate from sessionEndTime if sessionCreatedAt not available
+            // This handles old sessions that don't have sessionCreatedAt
+            if (sessionClassDuration) {
+              const calculatedCreatedAt = new Date(sessionEndTimeDate.getTime() - (sessionClassDuration * 60 * 1000));
+              setSessionCreatedAt(calculatedCreatedAt);
+              setClassDuration(sessionClassDuration);
+            }
+          }
+          
+          // Then set sessionEndTime
+          setSessionEndTime(sessionEndTimeDate);
+          
+          // Set initial time remaining (will be recalculated by timer with server sync)
+          const remaining = Math.max(0, sessionEndTimeDate.getTime() - now.getTime());
+          setTimeRemaining(remaining);
+          setCanClockOut(remaining === 0);
+          
+          // Finally set isClockedIn to true - this triggers the timer useEffect
+          // The timer will immediately start and update every second in real-time
+          setIsClockedIn(true);
+          
+          console.log('Session restored. Session created at:', sessionCreatedAtDate?.toISOString(), 'Duration:', sessionClassDuration, 'minutes');
+        } else {
+          // Session is too old or invalid, clear it
+          console.log('Session expired or invalid. Hours since clock-in:', hoursSinceClockIn, 'isClockedIn:', parsed.isClockedIn);
+          await clearSessionFromStorage();
+        }
+      } else {
+        console.log('No persisted session found in storage');
+      }
+    } catch (error) {
+      console.error('Error loading session from storage:', error);
+    }
+  };
+
+  // Clear session from AsyncStorage
+  const clearSessionFromStorage = async () => {
+    try {
+      await AsyncStorage.removeItem('clocked_in_session');
+      await AsyncStorage.removeItem('has_clocked_in');
+    } catch (error) {
+      console.error('Error clearing session from storage:', error);
+    }
+  };
+
   const requestLocationPermission = async () => {
     try {
+      setLocationLoading(true);
+      setLocationReady(false);
+      
       // Request location permission
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(locationStatus === 'granted');
@@ -111,17 +345,23 @@ const QRScannerScreen: React.FC = () => {
             accuracy: Location.Accuracy.High,
           });
           setCurrentLocation(location);
+          setLocationReady(true); // Location is fully ready
           showSuccess('Location permission granted');
         } catch (locationError) {
           console.error('Location fetch error:', locationError);
+          setLocationReady(false);
           showError('Failed to get your location. Please try again.');
         }
       } else {
+        setLocationReady(false);
         showError('Location permission is required to scan QR codes');
       }
     } catch (error) {
       console.error('Permission request error:', error);
+      setLocationReady(false);
       showError('Failed to request location permission');
+    } finally {
+      setLocationLoading(false);
     }
   };
 
@@ -158,21 +398,31 @@ const QRScannerScreen: React.FC = () => {
       
       otp = data.trim();
       
-      // Handle different QR code formats
-      if (data.includes('OTP:')) {
-        otp = data.split('OTP:')[1].trim();
-      } else if (data.includes('otp:')) {
-        otp = data.split('otp:')[1].trim();
-      } else if (data.includes('=')) {
-        // Handle URL format like "attendance?otp=123456"
-        const urlParams = new URLSearchParams(data.split('?')[1] || '');
-        otp = urlParams.get('otp') || urlParams.get('OTP') || '';
-      }
-      
-      // Extract any 6-digit number from the string
-      const digitMatch = otp.match(/\d{6}/);
-      if (digitMatch) {
-        otp = digitMatch[0];
+      // First, try to parse as JSON (new format from web app)
+      try {
+        const jsonData = JSON.parse(data);
+        if (jsonData.otp) {
+          otp = jsonData.otp;
+          console.log('Parsed OTP from JSON:', otp);
+        }
+      } catch (e) {
+        // Not JSON, try other formats
+        // Handle different QR code formats
+        if (data.includes('OTP:')) {
+          otp = data.split('OTP:')[1].trim();
+        } else if (data.includes('otp:')) {
+          otp = data.split('otp:')[1].trim();
+        } else if (data.includes('=')) {
+          // Handle URL format like "attendance?otp=123456"
+          const urlParams = new URLSearchParams(data.split('?')[1] || '');
+          otp = urlParams.get('otp') || urlParams.get('OTP') || '';
+        }
+        
+        // Extract any 6-digit number from the string
+        const digitMatch = otp.match(/\d{6}/);
+        if (digitMatch) {
+          otp = digitMatch[0];
+        }
       }
 
       console.log('Extracted OTP:', otp);
@@ -215,25 +465,90 @@ const QRScannerScreen: React.FC = () => {
         await AsyncStorage.setItem('has_clocked_in', 'true');
         
         // Set clock in time from attendance data if available, otherwise use current time
+        let clockInDate: Date;
         if (responseData.data?.clockInTime) {
-          setClockInTime(new Date(responseData.data.clockInTime));
+          clockInDate = new Date(responseData.data.clockInTime);
         } else if (responseData.data?.timestamp) {
-          setClockInTime(new Date(responseData.data.timestamp));
+          clockInDate = new Date(responseData.data.timestamp);
         } else {
-          setClockInTime(new Date());
+          clockInDate = new Date();
         }
+        setClockInTime(clockInDate);
         
+        let sessionEndDate: Date | null = null;
         if (responseData.sessionEndTime) {
-          setSessionEndTime(new Date(responseData.sessionEndTime));
+          sessionEndDate = new Date(responseData.sessionEndTime);
+          setSessionEndTime(sessionEndDate);
         }
         
-        // Extract session and class info from response
+        // Extract session and class info from response first
         const session = responseData.session || responseData.data?.session;
+        let sessionInfoData: { sessionId: string; className: string; classSubject?: string } | null = null;
         if (session && session.class) {
-          setSessionInfo({
+          sessionInfoData = {
             sessionId: session.id,
             className: session.class.name,
             classSubject: session.class.subject,
+          };
+          setSessionInfo(sessionInfoData);
+        }
+        
+        // Store session creation time and class duration for synchronized countdown
+        // Try multiple sources: direct response fields, session object, or calculate from sessionEndTime
+        let sessionCreatedAtDate: Date | null = null;
+        let sessionClassDuration: number | null = null;
+        
+        if (responseData.sessionCreatedAt) {
+          sessionCreatedAtDate = new Date(responseData.sessionCreatedAt);
+          setSessionCreatedAt(sessionCreatedAtDate);
+        } else if (session?.createdAt) {
+          sessionCreatedAtDate = new Date(session.createdAt);
+          setSessionCreatedAt(sessionCreatedAtDate);
+        }
+        
+        if (responseData.classDuration) {
+          sessionClassDuration = responseData.classDuration;
+          setClassDuration(sessionClassDuration);
+        } else if (session?.classDuration) {
+          sessionClassDuration = session.classDuration;
+          setClassDuration(sessionClassDuration);
+        }
+        
+        // If we have sessionEndTime but not sessionCreatedAt/classDuration, try to fetch from backend
+        if (sessionEndDate && sessionInfoData?.sessionId && (!sessionCreatedAtDate || !sessionClassDuration)) {
+          try {
+            const sessionsResponse = await api.get('/sessions');
+            const sessions = sessionsResponse.data;
+            const currentSession = Array.isArray(sessions) 
+              ? sessions.find((s: any) => s.id === sessionInfoData?.sessionId)
+              : null;
+            
+            if (currentSession) {
+              if (currentSession.createdAt && !sessionCreatedAtDate) {
+                sessionCreatedAtDate = new Date(currentSession.createdAt);
+                setSessionCreatedAt(sessionCreatedAtDate);
+              }
+              if (currentSession.classDuration && !sessionClassDuration) {
+                sessionClassDuration = currentSession.classDuration;
+                setClassDuration(sessionClassDuration);
+              }
+            }
+          } catch (fetchError) {
+            console.error('Error fetching session data for sync:', fetchError);
+            // Continue - timer will use sessionEndTime fallback
+          }
+        }
+        
+        // Save session to storage immediately (save even if sync fields are missing)
+        if (sessionEndDate && sessionInfoData) {
+          await saveSessionToStorage({
+            isClockedIn: true,
+            sessionEndTime: sessionEndDate.toISOString(),
+            sessionCreatedAt: sessionCreatedAtDate?.toISOString() || sessionEndDate.toISOString(),
+            classDuration: sessionClassDuration || 0,
+            clockInTime: clockInDate.toISOString(),
+            sessionInfo: sessionInfoData,
+            currentOTP: otp,
           });
         }
         
@@ -252,36 +567,249 @@ const QRScannerScreen: React.FC = () => {
       setSecurityMessage('');
       setLastScannedCode(''); // Reset to allow scanning same code again later
     } catch (error: any) {
-      console.error('Attendance marking error:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
+      // Check if clock-in was successful despite the error (backend might return 500 but with success data)
+      const responseData = error.response?.data;
+      const errorStatus = error.response?.status;
+      const isSuccessfulClockIn = 
+        responseData?.isClockedIn === true || 
+        responseData?.data?.status === 'CLOCKED_IN' ||
+        (responseData?.data && responseData.data.id); // If we have attendance data, it was created
       
-      // If clock-in was successful but there's an error, check if we should handle it gracefully
-      // This can happen if the response was successful but there's a client-side error
-      if (error.response?.status === 500 && error.response?.data?.isClockedIn) {
-        // Server error but clock-in was successful - try to extract session info from error response
-        const responseData = error.response.data;
-        if (responseData.isClockedIn) {
+      // For 500 errors, check if we can verify success by checking for attendance data
+      // Sometimes the backend creates the record but fails on response serialization
+      if (errorStatus === 500) {
+        // Try to verify if clock-in was actually successful by checking the response data
+        // Even if it's a 500 error, if we have session/attendance data, it likely succeeded
+        const hasSessionData = responseData?.session || responseData?.data?.session;
+        const hasAttendanceData = responseData?.data?.id || responseData?.data?.studentId;
+        
+        if (hasSessionData || hasAttendanceData || isSuccessfulClockIn) {
+          // Clock-in was likely successful, treat as success
+          console.log('Clock-in likely successful despite 500 error, processing success state...');
+          
           setIsClockedIn(true);
-          if (responseData.sessionEndTime) {
-            setSessionEndTime(new Date(responseData.sessionEndTime));
+          setCurrentOTP(otp);
+          
+          // Extract clock in time
+          let clockInDate: Date;
+          if (responseData?.data?.clockInTime) {
+            clockInDate = new Date(responseData.data.clockInTime);
+          } else if (responseData?.data?.timestamp) {
+            clockInDate = new Date(responseData.data.timestamp);
+          } else {
+            clockInDate = new Date();
           }
-          const session = responseData.session || responseData.data?.session;
+          setClockInTime(clockInDate);
+          
+          // Extract session end time
+          let sessionEndDate: Date | null = null;
+          let sessionCreatedAtDate: Date | null = null;
+          let sessionClassDuration: number | null = null;
+          
+          if (responseData?.sessionEndTime) {
+            sessionEndDate = new Date(responseData.sessionEndTime);
+            setSessionEndTime(sessionEndDate);
+          }
+          
+          // Store session creation time and class duration for synchronized countdown
+          if (responseData?.sessionCreatedAt) {
+            sessionCreatedAtDate = new Date(responseData.sessionCreatedAt);
+            setSessionCreatedAt(sessionCreatedAtDate);
+          } else if (responseData?.session?.createdAt) {
+            sessionCreatedAtDate = new Date(responseData.session.createdAt);
+            setSessionCreatedAt(sessionCreatedAtDate);
+          }
+          
+          if (responseData?.classDuration) {
+            sessionClassDuration = responseData.classDuration;
+            setClassDuration(sessionClassDuration);
+          } else if (responseData?.session?.classDuration) {
+            sessionClassDuration = responseData.session.classDuration;
+            setClassDuration(sessionClassDuration);
+          }
+          
+          // Extract session info
+          const session = responseData?.session || responseData?.data?.session;
+          let sessionInfoData: { sessionId: string; className: string; classSubject?: string } | null = null;
           if (session && session.class) {
-            setSessionInfo({
+            sessionInfoData = {
               sessionId: session.id,
               className: session.class.name,
               classSubject: session.class.subject,
+            };
+            setSessionInfo(sessionInfoData);
+            
+            // If we don't have sessionCreatedAt or classDuration, try to get from session object
+            if (!sessionCreatedAtDate && session.createdAt) {
+              sessionCreatedAtDate = new Date(session.createdAt);
+              setSessionCreatedAt(sessionCreatedAtDate);
+            }
+            if (!sessionClassDuration && session.classDuration) {
+              sessionClassDuration = session.classDuration;
+              setClassDuration(sessionClassDuration);
+            }
+          }
+          
+          // Calculate session end time if not provided but we have creation time and duration
+          if (!sessionEndDate && sessionCreatedAtDate && sessionClassDuration) {
+            sessionEndDate = new Date(sessionCreatedAtDate.getTime() + sessionClassDuration * 60 * 1000);
+            setSessionEndTime(sessionEndDate);
+          }
+          
+          // If we still don't have sessionEndTime, try to fetch session data from backend
+          if (!sessionEndDate && sessionInfoData?.sessionId) {
+            try {
+              // Fetch session details to get createdAt and classDuration
+              const sessionsResponse = await api.get('/sessions');
+              const sessions = sessionsResponse.data;
+              const currentSession = Array.isArray(sessions) 
+                ? sessions.find((s: any) => s.id === sessionInfoData?.sessionId)
+                : null;
+              
+              if (currentSession) {
+                if (currentSession.createdAt && !sessionCreatedAtDate) {
+                  sessionCreatedAtDate = new Date(currentSession.createdAt);
+                  setSessionCreatedAt(sessionCreatedAtDate);
+                }
+                if (currentSession.classDuration && !sessionClassDuration) {
+                  sessionClassDuration = currentSession.classDuration;
+                  setClassDuration(sessionClassDuration);
+                }
+                if (sessionCreatedAtDate && sessionClassDuration) {
+                  sessionEndDate = new Date(sessionCreatedAtDate.getTime() + sessionClassDuration * 60 * 1000);
+                  setSessionEndTime(sessionEndDate);
+                }
+              }
+            } catch (fetchError) {
+              console.error('Error fetching session data:', fetchError);
+              // Continue without synchronized countdown - will use sessionEndTime if available
+            }
+          }
+          
+          // Save session to storage (save even if we don't have all sync fields - timer will use fallback)
+          if (sessionEndDate && sessionInfoData) {
+            await saveSessionToStorage({
+              isClockedIn: true,
+              sessionEndTime: sessionEndDate.toISOString(),
+              sessionCreatedAt: sessionCreatedAtDate?.toISOString() || sessionEndDate.toISOString(), // Fallback to sessionEndTime if missing
+              classDuration: sessionClassDuration || 0, // Fallback to 0 if missing
+              clockInTime: clockInDate.toISOString(),
+              sessionInfo: sessionInfoData,
+              currentOTP: otp,
             });
           }
-          showSuccess('Clock in successful!');
+          
+          // Mark that student has clocked in
+          await AsyncStorage.setItem('has_clocked_in', 'true');
+          
+          showSuccess(responseData?.message || 'Clock in successful! Please wait for class to end before clocking out.');
           setScanned(true);
           setScanningEnabled(false);
           setLoading(false);
           setIsProcessing(false);
+          setShowSMSModal(false);
+          setSmsCode('');
+          setSecurityMessage('');
+          setLastScannedCode('');
           return;
         }
       }
+      
+      if (isSuccessfulClockIn) {
+        // Clock-in was successful, handle it as success even if there's a 500 error
+        console.log('Clock-in successful despite error response, processing success state...');
+        
+        setIsClockedIn(true);
+        setCurrentOTP(otp);
+        
+        // Extract clock in time
+        let clockInDate: Date;
+        if (responseData.data?.clockInTime) {
+          clockInDate = new Date(responseData.data.clockInTime);
+        } else if (responseData.data?.timestamp) {
+          clockInDate = new Date(responseData.data.timestamp);
+        } else {
+          clockInDate = new Date();
+        }
+        setClockInTime(clockInDate);
+        
+        // Extract session end time
+        let sessionEndDate: Date | null = null;
+        let sessionCreatedAtDate: Date | null = null;
+        let sessionClassDuration: number | null = null;
+        
+        if (responseData.sessionEndTime) {
+          sessionEndDate = new Date(responseData.sessionEndTime);
+          setSessionEndTime(sessionEndDate);
+        }
+        
+        // Store session creation time and class duration for synchronized countdown
+        if (responseData.sessionCreatedAt) {
+          sessionCreatedAtDate = new Date(responseData.sessionCreatedAt);
+          setSessionCreatedAt(sessionCreatedAtDate);
+        } else if (responseData.session?.createdAt) {
+          sessionCreatedAtDate = new Date(responseData.session.createdAt);
+          setSessionCreatedAt(sessionCreatedAtDate);
+        }
+        
+        if (responseData.classDuration) {
+          sessionClassDuration = responseData.classDuration;
+          setClassDuration(sessionClassDuration);
+        } else if (responseData.session?.classDuration) {
+          sessionClassDuration = responseData.session.classDuration;
+          setClassDuration(sessionClassDuration);
+        }
+        
+        // Calculate session end time if not provided but we have creation time and duration
+        if (!sessionEndDate && sessionCreatedAtDate && sessionClassDuration) {
+          sessionEndDate = new Date(sessionCreatedAtDate.getTime() + sessionClassDuration * 60 * 1000);
+          setSessionEndTime(sessionEndDate);
+        }
+        
+        // Extract session info
+        const session = responseData.session || responseData.data?.session;
+        let sessionInfoData: { sessionId: string; className: string; classSubject?: string } | null = null;
+        if (session && session.class) {
+          sessionInfoData = {
+            sessionId: session.id,
+            className: session.class.name,
+            classSubject: session.class.subject,
+          };
+          setSessionInfo(sessionInfoData);
+        }
+        
+        // Save session to storage
+        if (sessionEndDate && sessionInfoData && sessionCreatedAtDate && sessionClassDuration) {
+          await saveSessionToStorage({
+            isClockedIn: true,
+            sessionEndTime: sessionEndDate.toISOString(),
+            sessionCreatedAt: sessionCreatedAtDate.toISOString(),
+            classDuration: sessionClassDuration,
+            clockInTime: clockInDate.toISOString(),
+            sessionInfo: sessionInfoData,
+            currentOTP: otp,
+          });
+        }
+        
+        // Mark that student has clocked in
+        await AsyncStorage.setItem('has_clocked_in', 'true');
+        
+        showSuccess(responseData.message || 'Clock in successful! Please wait for class to end before clocking out.');
+        setScanned(true);
+        setScanningEnabled(false);
+        setLoading(false);
+        setIsProcessing(false);
+        setShowSMSModal(false);
+        setSmsCode('');
+        setSecurityMessage('');
+        setLastScannedCode('');
+        return;
+      }
+      
+      // If not a successful clock-in, handle as error
+      console.error('Attendance marking error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       
       const errorMessage = error.response?.data?.message || error.message || 'Failed to mark attendance. Please try again.';
       
@@ -306,7 +834,7 @@ const QRScannerScreen: React.FC = () => {
     }
   };
 
-  const resetScanner = () => {
+  const resetScanner = async () => {
     setScanned(false);
     setScanningEnabled(true);
     setLoading(false);
@@ -316,16 +844,25 @@ const QRScannerScreen: React.FC = () => {
     setSecurityMessage('');
     setIsClockedIn(false);
     setSessionEndTime(null);
+    setSessionCreatedAt(null);
+    setClassDuration(null);
+    setServerTimeOffset(0);
     setClockInTime(null);
     setTimeRemaining(0);
     setCanClockOut(false);
     setSessionInfo(null);
     setLastScannedCode('');
+    setCurrentOTP('');
+    
+    // Clear persisted session
+    await clearSessionFromStorage();
   };
 
   const handleClockOut = async () => {
-    if (!canClockOut || !currentOTP) {
-      showError('Please wait for class to end before clocking out');
+    // Allow clock out even if session hasn't ended yet (backend will handle validation)
+    // But prefer to allow after session end time or if canClockOut is true
+    if (!currentOTP) {
+      showError('Session data not found. Please clock in again.');
       return;
     }
 
@@ -345,18 +882,41 @@ const QRScannerScreen: React.FC = () => {
       const response = await api.post('/attendance/clock-out', clockOutData);
       showSuccess(`Clock out successful! You attended for ${response.data.timeElapsed} minutes.`);
       
-      // Reset states
+      // Reset states and clear storage
       setIsClockedIn(false);
       setSessionEndTime(null);
+      setSessionCreatedAt(null);
+      setClassDuration(null);
+      setServerTimeOffset(0);
       setClockInTime(null);
       setTimeRemaining(0);
       setCanClockOut(false);
       setCurrentOTP('');
       setScanned(false);
       setScanningEnabled(true);
+      setSessionInfo(null);
+      
+      // Clear persisted session
+      await clearSessionFromStorage();
     } catch (error: any) {
       console.error('Clock out error:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to clock out. Please try again.';
+      
+      // If the error is about session not found or expired, clear the local session
+      if (error.response?.status === 404 || errorMessage.includes('not found') || errorMessage.includes('expired')) {
+        setIsClockedIn(false);
+        setSessionEndTime(null);
+        setSessionCreatedAt(null);
+        setClassDuration(null);
+        setServerTimeOffset(0);
+        setClockInTime(null);
+        setTimeRemaining(0);
+        setCanClockOut(false);
+        setCurrentOTP('');
+        setSessionInfo(null);
+        await clearSessionFromStorage();
+      }
+      
       showError(errorMessage);
     } finally {
       setLoading(false);
@@ -377,6 +937,14 @@ const QRScannerScreen: React.FC = () => {
 
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
+  };
+
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(1, prev + 0.1)); // Increase zoom by 0.1, max 1
+  };
+
+  const handleZoomOut = () => {
+    setZoom(prev => Math.max(0, prev - 0.1)); // Decrease zoom by 0.1, min 0
   };
 
   const promptForOTP = () => {
@@ -420,7 +988,7 @@ const QRScannerScreen: React.FC = () => {
             Please grant camera permission to scan QR codes for attendance.
           </Text>
           <TouchableOpacity style={styles.permissionButton} onPress={handleRequestCameraPermission}>
-            <Text style={styles.permissionButtonText}>Grant Camera Permission</Text>
+            <Text style={styles.permissionButtonText}>Continue</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -510,14 +1078,26 @@ const QRScannerScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           )}
-          {locationPermission && cameraPermission.granted && !isClockedIn && (
+          
+          {/* Show loader while location is being fetched */}
+          {locationPermission && locationLoading && !locationReady && (
+            <View style={styles.centerContent}>
+              <ActivityIndicator size="large" color="#FFD700" />
+              <Text style={styles.loadingText}>Getting your location...</Text>
+              <Text style={styles.loadingSubtext}>Please wait while we find your location</Text>
+            </View>
+          )}
+          
+          {/* Only show camera when location is fully ready */}
+          {locationPermission && locationReady && !locationLoading && cameraPermission.granted && !isClockedIn && (
             <View style={styles.cameraContainer}>
             <CameraView
               style={styles.camera}
               facing={facing}
-              onBarcodeScanned={scanningEnabled && !scanned && !loading && !isProcessing && locationPermission ? ({ data }) => {
-                // Only scan if data is different from last scan and not processing, and location is enabled
-                if (data !== lastScannedCode && !isProcessing && locationPermission) {
+              zoom={zoom}
+              onBarcodeScanned={scanningEnabled && !scanned && !loading && !isProcessing && locationReady && currentLocation ? ({ data }) => {
+                // Only scan if data is different from last scan and not processing, and location is ready
+                if (data !== lastScannedCode && !isProcessing && locationReady && currentLocation) {
                   handleQRCodeScanned(data);
                 }
               } : undefined}
@@ -549,17 +1129,38 @@ const QRScannerScreen: React.FC = () => {
                   </View>
                 )}
               </View>
+              
+              {/* Zoom Controls */}
+              <View style={styles.zoomControls}>
+                <TouchableOpacity
+                  style={[styles.zoomButton, zoom <= 0 && styles.zoomButtonDisabled]}
+                  onPress={handleZoomOut}
+                  disabled={zoom <= 0}
+                >
+                  <Ionicons name="remove-outline" size={24} color={zoom <= 0 ? "#999" : "#fff"} />
+                </TouchableOpacity>
+                <View style={styles.zoomIndicator}>
+                  <Text style={styles.zoomText}>{Math.round(zoom * 100)}%</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.zoomButton, zoom >= 1 && styles.zoomButtonDisabled]}
+                  onPress={handleZoomIn}
+                  disabled={zoom >= 1}
+                >
+                  <Ionicons name="add-outline" size={24} color={zoom >= 1 ? "#999" : "#fff"} />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
           
-          {!cameraReady && locationPermission && cameraPermission.granted && !isClockedIn && (
+          {!cameraReady && locationReady && !locationLoading && locationPermission && cameraPermission.granted && !isClockedIn && (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#8B0000" />
               <Text style={styles.loadingText}>Initializing camera...</Text>
             </View>
           )}
           
-          {loading && locationPermission && !isClockedIn && (
+          {loading && locationReady && locationPermission && !isClockedIn && (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#FFD700" />
               <Text style={styles.loadingText}>Processing attendance...</Text>
@@ -567,7 +1168,7 @@ const QRScannerScreen: React.FC = () => {
             </View>
           )}
           
-          {scanned && !loading && locationPermission && !isClockedIn && (
+          {scanned && !loading && locationReady && locationPermission && !isClockedIn && (
             <View style={styles.scanCompleteMessage}>
               <Text style={styles.scanCompleteMessageText}>
                 Scan completed. Use "Scan Again" to scan another QR code.
@@ -677,7 +1278,7 @@ const QRScannerScreen: React.FC = () => {
       <View style={styles.footer}>
         {!isClockedIn && locationPermission && (
           <Text style={styles.footerText}>
-            Location: {currentLocation ? '✓ Enabled' : '✗ Getting location...'} | Camera: {facing === 'back' ? 'Back' : 'Front'}
+            Location: {locationReady && currentLocation ? '✓ Enabled' : locationLoading ? '⏳ Getting location...' : '✗ Not found'} | Camera: {facing === 'back' ? 'Back' : 'Front'}
           </Text>
         )}
         {isClockedIn ? (
@@ -685,17 +1286,27 @@ const QRScannerScreen: React.FC = () => {
             <TouchableOpacity
               style={[
                 styles.clockOutButton,
-                (!canClockOut || loading) && styles.disabledButton
+                (loading || (!canClockOut && timeRemaining > 0)) && styles.disabledButton
               ]}
               onPress={handleClockOut}
-              disabled={!canClockOut || loading}
+              disabled={loading || (!canClockOut && timeRemaining > 0)}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="log-out-outline" size={20} color="#8B0000" style={{ marginRight: 8 }} />
-                  <Text style={styles.clockOutButtonText}>Clock Out</Text>
+                  <Ionicons 
+                    name="log-out-outline" 
+                    size={20} 
+                    color={(!canClockOut && timeRemaining > 0) ? "#999" : "#8B0000"} 
+                    style={{ marginRight: 8 }} 
+                  />
+                  <Text style={[
+                    styles.clockOutButtonText,
+                    (!canClockOut && timeRemaining > 0) && styles.disabledButtonText
+                  ]}>
+                    {canClockOut || timeRemaining === 0 ? 'Clock Out' : 'Clock Out (Class in progress)'}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -720,9 +1331,9 @@ const QRScannerScreen: React.FC = () => {
             ) : (
               <>
                 <TouchableOpacity
-                  style={[styles.flipButton, (loading || scanned || !locationPermission) && styles.disabledButton]}
+                  style={[styles.flipButton, (loading || scanned || !locationReady) && styles.disabledButton]}
                   onPress={toggleCameraFacing}
-                  disabled={loading || scanned || !locationPermission}
+                  disabled={loading || scanned || !locationReady}
                 >
                   <Ionicons 
                     name={facing === 'back' ? 'camera-reverse' : 'camera'} 
@@ -731,9 +1342,9 @@ const QRScannerScreen: React.FC = () => {
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.manualButton, (loading || scanned || !locationPermission) && styles.disabledButton]}
+                  style={[styles.manualButton, (loading || scanned || !locationReady) && styles.disabledButton]}
                   onPress={promptForOTP}
-                  disabled={loading || scanned || !locationPermission}
+                  disabled={loading || scanned || !locationReady}
                 >
                   <Text style={styles.manualButtonText}>Use OTP</Text>
                 </TouchableOpacity>
@@ -987,6 +1598,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+  disabledButtonText: {
+    color: '#8B0000',
+    opacity: 0.6,
+  },
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -1133,6 +1748,44 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
+  },
+  // Zoom Controls
+  zoomControls: {
+    position: 'absolute',
+    right: 20,
+    top: '50%',
+    transform: [{ translateY: -60 }],
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 25,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  zoomButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  zoomButtonDisabled: {
+    opacity: 0.3,
+  },
+  zoomIndicator: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 12,
+    marginVertical: 4,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  zoomText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

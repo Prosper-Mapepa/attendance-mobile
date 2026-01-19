@@ -12,7 +12,7 @@ export default function App() {
       <ToastProvider>
         <TourProvider>
           <AppNavigator />
-          <UpdatePrompt autoCheck={true} autoUpdate={false} />
+          <UpdatePrompt autoCheck={true} autoUpdate={true} />
           <StatusBar style="light" />
         </TourProvider>
       </ToastProvider>

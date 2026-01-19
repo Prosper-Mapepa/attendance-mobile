@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { checkForUpdates, downloadAndApplyUpdate } from '../services/updateService';
@@ -30,28 +31,55 @@ const UpdatePrompt: React.FC<UpdatePromptProps> = ({
   const [updateMessage, setUpdateMessage] = useState('');
   const { showError, showSuccess } = useToast();
 
+  const appState = useRef(AppState.currentState);
+
   useEffect(() => {
     if (autoCheck) {
+      // Check immediately when component mounts
       checkForUpdate();
     }
+  }, [autoCheck]);
+
+  useEffect(() => {
+    // Check for updates when app comes to foreground
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active' &&
+        autoCheck
+      ) {
+        // App has come to foreground, check for updates
+        checkForUpdate();
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription?.remove();
+    };
   }, [autoCheck]);
 
   const checkForUpdate = async () => {
     setIsChecking(true);
     try {
       const updateInfo = await checkForUpdates();
+      console.log('Update check result:', updateInfo);
       
       if (updateInfo.isAvailable) {
         setUpdateAvailable(true);
         setUpdateMessage('A new version of AttendIQ is available!');
+        console.log('Update available, autoUpdate:', autoUpdate);
         
         if (autoUpdate) {
-          // Automatically download and apply update
+          // Automatically download and apply update without showing prompt
+          console.log('Auto-updating...');
           await handleUpdate();
         } else {
           // Show prompt to user
           setVisible(true);
         }
+      } else {
+        console.log('No update available');
       }
     } catch (error) {
       console.error('Error checking for updates:', error);
@@ -63,22 +91,32 @@ const UpdatePrompt: React.FC<UpdatePromptProps> = ({
   const handleUpdate = async () => {
     setIsDownloading(true);
     try {
+      console.log('Downloading update...');
       const success = await downloadAndApplyUpdate();
+      console.log('Update download result:', success);
       
       if (success) {
+        // Don't show toast in auto-update mode as app will restart immediately
+        if (!autoUpdate) {
         showSuccess('Update downloaded! Restarting app...');
+        }
         if (onUpdateComplete) {
           onUpdateComplete();
         }
-        // App will reload automatically
+        // App will reload automatically via Updates.reloadAsync()
       } else {
+        console.log('Update download failed or no update available');
+        if (!autoUpdate) {
         showError('No update available or update failed');
         setVisible(false);
+        }
       }
     } catch (error) {
       console.error('Error updating app:', error);
+      if (!autoUpdate) {
       showError('Failed to update app. Please try again later.');
       setVisible(false);
+      }
     } finally {
       setIsDownloading(false);
     }

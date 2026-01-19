@@ -17,7 +17,7 @@ import api from '../config/api';
 
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const responsive = useResponsive();
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const { showSuccess, showError, showConfirm } = useToast();
   
   const [name, setName] = useState('');
@@ -255,6 +255,33 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       'Logout',
       'Logout',
       'Cancel'
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action cannot be undone. All your data will be permanently deleted.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+              showSuccess('Account deleted successfully');
+              // Navigation will be handled by AuthContext clearing user
+            } catch (error: any) {
+              showError(error.message || 'Failed to delete account');
+            }
+          },
+        },
+      ],
+      { cancelable: true }
     );
   };
 
@@ -574,6 +601,21 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             <Ionicons name="chevron-forward" size={20} color="#8B0000" />
           </TouchableOpacity>
         </View>
+
+        {/* Delete Account Section */}
+        <View style={styles.deleteAccountSection}>
+          <TouchableOpacity
+            style={styles.deleteAccountButton}
+            onPress={handleDeleteAccount}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="trash-outline" size={20} color="#dc3545" />
+            <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
+          </TouchableOpacity>
+          <Text style={styles.deleteAccountWarning}>
+            Permanently delete your account and all associated data. This action cannot be undone.
+          </Text>
+        </View>
       </View>
     </ScrollView>
   );
@@ -846,6 +888,42 @@ const styles = StyleSheet.create({
     color: '#8B0000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  deleteAccountSection: {
+    marginTop: 24,
+    marginBottom: 32,
+  },
+  deleteAccountButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#dc3545',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  deleteAccountButtonText: {
+    marginLeft: 8,
+    color: '#dc3545',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteAccountWarning: {
+    marginTop: 8,
+    paddingHorizontal: 4,
+    color: '#6c757d',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 16,
   },
   buttonDisabled: {
     opacity: 0.6,
